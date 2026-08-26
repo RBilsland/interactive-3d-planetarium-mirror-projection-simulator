@@ -4,10 +4,16 @@ import { directionToEquirectUV, formatMeshNumber } from './equirect'
 import {
   buildWarpMesh,
   expandGridBounds,
+  getExportGridBounds,
   getUsableRayGridBounds,
+  pathLengthIntensity,
+  rayPathLength,
   sanitizeMeshFilename,
   scaleGridBounds,
   serializeWarpMesh,
+  tightenGridBounds,
+  WARP_MESH_COLUMNS,
+  WARP_MESH_ROWS,
   WARP_MESH_TYPE,
 } from './warpMesh'
 import type { SimulationParameters } from './types'
@@ -70,50 +76,82 @@ describe('usable mesh bounds', () => {
 })
 
 describe('warp mesh export', () => {
-  it('writes a sparse Bourke-style mesh with only mapped nodes', () => {
+  it('writes a cropped rectangular Bourke mesh header and node count', () => {
     const mesh = buildWarpMesh(parameters)
     const text = serializeWarpMesh(mesh)
     const lines = text.trimEnd().split('\n')
 
     expect(mesh.type).toBe(WARP_MESH_TYPE)
-    expect(mesh.rows).toBe(1)
-    expect(mesh.nodes.length).toBeGreaterThan(0)
-    expect(mesh.nodes.length).toBeLessThan(100 * 60)
-    expect(mesh.columns).toBe(mesh.nodes.length)
+    expect(mesh.nodes).toHaveLength(mesh.columns * mesh.rows)
+    expect(mesh.columns).toBeGreaterThan(0)
+    expect(mesh.rows).toBeGreaterThan(0)
+    expect(mesh.columns * mesh.rows).toBeLessThan(WARP_MESH_COLUMNS * WARP_MESH_ROWS)
     expect(lines[0]).toBe('4')
-    expect(lines[1]).toBe(`${mesh.nodes.length} 1`)
-    expect(lines).toHaveLength(2 + mesh.nodes.length)
-    expect(mesh.nodes.every((node) => node.intensity === 1)).toBe(true)
+    expect(lines[1]).toBe(`${mesh.columns} ${mesh.rows}`)
+    expect(lines).toHaveLength(2 + mesh.columns * mesh.rows)
   })
 
-  it('emits projector coordinates in bottom-to-top row order', () => {
+  it('emits a regular projector grid in row-major order', () => {
     const mesh = buildWarpMesh(parameters)
     const aspect = 16 / 9
     const first = mesh.nodes[0]
     const last = mesh.nodes[mesh.nodes.length - 1]
+    const second = mesh.nodes[1]
 
     expect(first.y).toBeLessThanOrEqual(last.y)
+    expect(second.x).toBeGreaterThan(first.x)
+    expect(second.y).toBeCloseTo(first.y)
     expect(first.x).toBeGreaterThanOrEqual(-aspect)
     expect(last.x).toBeLessThanOrEqual(aspect)
   })
 
-  it('omits unmapped projector pixels entirely', () => {
+  it('masks invalid projector nodes with negative intensity', () => {
     const mesh = buildWarpMesh({
       ...parameters,
       projectorFov: 10,
       projectorDistance: 3.5,
     })
-    expect(mesh.nodes.length).toBeGreaterThan(0)
-    expect(mesh.nodes.every((node) => node.intensity === 1 && node.u >= 0 && node.u <= 1)).toBe(
-      true,
-    )
+    expect(mesh.nodes.some((node) => node.intensity < 0)).toBe(true)
+    expect(
+      mesh.nodes.every(
+        (node) =>
+          (node.intensity > 0 && node.intensity <= 1 && node.u >= 0 && node.u <= 1)
+          || node.intensity === -1,
+      ),
+    ).toBe(true)
+  })
+
+  it('sets intensity from normalised projector-to-dome path length', () => {
+    const mesh = buildWarpMesh(parameters)
+    const mapped = mesh.nodes.filter((node) => node.intensity > 0)
+    expect(mapped.length).toBeGreaterThan(1)
+    expect(Math.max(...mapped.map((node) => node.intensity))).toBeCloseTo(1)
+    expect(Math.min(...mapped.map((node) => node.intensity))).toBeLessThan(1)
+  })
+
+  it('computes path length along mirror reflection', () => {
+    const ray = {
+      column: 0,
+      row: 0,
+      origin: new Vector3(0, -1.5, 1.15),
+      direction: new Vector3(0, 1, 0),
+      mirrorHit: new Vector3(0, -0.5, 1.5),
+      domeHit: new Vector3(0, 4, 2),
+      reflectedDirection: new Vector3(0, 1, 0.2),
+      status: 'valid' as const,
+    }
+    expect(rayPathLength(ray)).toBeCloseTo(ray.origin.distanceTo(ray.mirrorHit!) + ray.mirrorHit!.distanceTo(ray.domeHit!))
+    expect(pathLengthIntensity(8, 10)).toBeCloseTo(0.8)
+    expect(pathLengthIntensity(10, 10)).toBeCloseTo(1)
   })
 
   it('can include chassis-occluded rays in the mesh', () => {
     const excluded = buildWarpMesh(parameters, { includeOccluded: false })
     const included = buildWarpMesh(parameters, { includeOccluded: true })
+    const excludedLive = excluded.nodes.filter((node) => node.intensity > 0)
+    const includedLive = included.nodes.filter((node) => node.intensity > 0)
 
-    expect(included.nodes.length).toBeGreaterThanOrEqual(excluded.nodes.length)
+    expect(includedLive.length).toBeGreaterThanOrEqual(excludedLive.length)
   })
 
   it('produces finite deterministic output for a fixed setup', () => {
@@ -138,5 +176,24 @@ describe('warp mesh export', () => {
 
   it('returns null bounds when no rays are usable', () => {
     expect(getUsableRayGridBounds([], false)).toBeNull()
+    expect(getExportGridBounds([], false)).toBeNull()
+  })
+
+  it('removes outer rows and columns that contain no mapped cells', () => {
+    const usable = new Set(['2:1', '3:2'])
+    const tightened = tightenGridBounds(
+      { minColumn: 0, maxColumn: 3, minRow: 0, maxRow: 2 },
+      usable,
+    )
+    expect(tightened).toEqual({ minColumn: 2, maxColumn: 3, minRow: 1, maxRow: 2 })
+  })
+
+  it('keeps internal empty rows needed for grid adjacency', () => {
+    const usable = new Set(['1:0', '1:2'])
+    const tightened = tightenGridBounds(
+      { minColumn: 1, maxColumn: 1, minRow: 0, maxRow: 2 },
+      usable,
+    )
+    expect(tightened).toEqual({ minColumn: 1, maxColumn: 1, minRow: 0, maxRow: 2 })
   })
 })

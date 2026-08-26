@@ -28,13 +28,30 @@ export interface WarpMeshNode {
 
 export interface WarpMesh {
   type: number
-  /** Usable node count for sparse Bourke export (`count 1` header). */
+  /** Column count of the exported rectangular Bourke grid. */
   columns: number
-  /** Always `1` for sparse export — only mapped nodes are written. */
+  /** Row count of the exported rectangular Bourke grid. */
   rows: number
+  /** Row-major grid nodes (`columns * rows`), including intensity -1 holes. */
   nodes: WarpMeshNode[]
-  /** Projector grid bounds that contain every exported node. */
+  /** Source grid indices covered by this export (inclusive). */
   bounds: GridBounds | null
+}
+
+/** Total mirror-reflected travel distance from projector to dome hit. */
+export function rayPathLength(
+  ray: TracedRay & {
+    mirrorHit: NonNullable<TracedRay['mirrorHit']>
+    domeHit: NonNullable<TracedRay['domeHit']>
+  },
+): number {
+  return ray.origin.distanceTo(ray.mirrorHit) + ray.mirrorHit.distanceTo(ray.domeHit)
+}
+
+/** Normalise path length so the longest ray is 1 and shorter rays are dimmed. */
+export function pathLengthIntensity(pathLength: number, maxPathLength: number): number {
+  if (maxPathLength <= 0) return 1
+  return Math.min(1, Math.max(0, pathLength / maxPathLength))
 }
 
 /** Rays that reach the dome and should feed warp / preview mesh geometry. */
@@ -68,6 +85,83 @@ export function getUsableRayGridBounds(
   if (!Number.isFinite(minColumn)) return null
 
   return { minColumn, maxColumn, minRow, maxRow }
+}
+
+function buildUsableGridLookup(
+  rays: TracedRay[],
+  includeOccluded: boolean,
+): Set<string> {
+  const usable = new Set<string>()
+  for (const ray of rays) {
+    if (isMeshUsableRay(ray, includeOccluded)) {
+      usable.add(`${ray.column}:${ray.row}`)
+    }
+  }
+  return usable
+}
+
+function rowHasUsableCell(
+  bounds: GridBounds,
+  row: number,
+  usable: Set<string>,
+): boolean {
+  for (let column = bounds.minColumn; column <= bounds.maxColumn; column += 1) {
+    if (usable.has(`${column}:${row}`)) return true
+  }
+  return false
+}
+
+function columnHasUsableCell(
+  bounds: GridBounds,
+  column: number,
+  usable: Set<string>,
+): boolean {
+  for (let row = bounds.minRow; row <= bounds.maxRow; row += 1) {
+    if (usable.has(`${column}:${row}`)) return true
+  }
+  return false
+}
+
+/**
+ * Shrinks bounds by removing outer rows/columns that contain no mapped cells.
+ * Internal all-empty rows/columns are kept so grid adjacency stays correct.
+ */
+export function tightenGridBounds(
+  bounds: GridBounds,
+  usable: Set<string>,
+): GridBounds {
+  let { minColumn, maxColumn, minRow, maxRow } = bounds
+
+  while (minRow <= maxRow && !rowHasUsableCell({ minColumn, maxColumn, minRow, maxRow }, minRow, usable)) {
+    minRow += 1
+  }
+  while (minRow <= maxRow && !rowHasUsableCell({ minColumn, maxColumn, minRow, maxRow }, maxRow, usable)) {
+    maxRow -= 1
+  }
+  while (minColumn <= maxColumn && !columnHasUsableCell({ minColumn, maxColumn, minRow, maxRow }, minColumn, usable)) {
+    minColumn += 1
+  }
+  while (minColumn <= maxColumn && !columnHasUsableCell({ minColumn, maxColumn, minRow, maxRow }, maxColumn, usable)) {
+    maxColumn -= 1
+  }
+
+  if (minColumn > maxColumn || minRow > maxRow) return bounds
+
+  return { minColumn, maxColumn, minRow, maxRow }
+}
+
+/** Bounds for Bourke export: mapped footprint with empty outer rows/columns removed. */
+export function getExportGridBounds(
+  rays: TracedRay[],
+  includeOccluded = false,
+): GridBounds | null {
+  const usable = buildUsableGridLookup(rays, includeOccluded)
+  if (usable.size === 0) return null
+
+  const bounds = getUsableRayGridBounds(rays, includeOccluded)
+  if (!bounds) return null
+
+  return tightenGridBounds(bounds, usable)
 }
 
 export function expandGridBounds(
@@ -118,49 +212,99 @@ function projectorCoordinates(
 }
 
 /**
- * Builds a Paul Bourke equirectangular warp mesh containing only projector
- * pixels that actually map onto the dome. Unmapped rays are omitted entirely.
+ * Builds a Paul Bourke rectangular warp mesh cropped to the projector footprint.
+ * Adjacent grid cells can be triangulated normally; intensity -1 marks holes.
  */
 export function buildWarpMesh(
   params: SimulationParameters,
   options: WarpMeshOptions = {},
 ): WarpMesh {
-  const columns = options.columns ?? WARP_MESH_COLUMNS
-  const rows = options.rows ?? WARP_MESH_ROWS
+  const sourceColumns = options.columns ?? WARP_MESH_COLUMNS
+  const sourceRows = options.rows ?? WARP_MESH_ROWS
   const orientation = options.orientation ?? { yaw: 0, pitch: 0, roll: 0 }
   const includeOccluded = options.includeOccluded ?? false
   const aspect = aspectRatioValue(params.aspectRatio)
 
   const result = traceProjection({
     ...params,
-    gridColumns: columns,
-    gridRows: rows,
+    gridColumns: sourceColumns,
+    gridRows: sourceRows,
   })
-  const bounds = getUsableRayGridBounds(result.rays, includeOccluded)
-
-  const nodes: WarpMeshNode[] = []
-  for (const ray of result.rays) {
-    if (!isMeshUsableRay(ray, includeOccluded)) continue
-    const uv = directionToEquirectUV(ray.domeHit, orientation)
-    const { x, y } = projectorCoordinates(ray.column, ray.row, columns, rows, aspect)
-    nodes.push({
-      x,
-      y,
-      u: uv.u,
-      v: uv.v,
-      intensity: 1,
-    })
+  const usableBounds = getExportGridBounds(result.rays, includeOccluded)
+  if (!usableBounds) {
+    return {
+      type: WARP_MESH_TYPE,
+      columns: 0,
+      rows: 0,
+      nodes: [],
+      bounds: null,
+    }
   }
 
-  nodes.sort((left, right) => {
-    if (left.y !== right.y) return left.y - right.y
-    return left.x - right.x
-  })
+  const bounds = usableBounds
+  const exportColumns = bounds.maxColumn - bounds.minColumn + 1
+  const exportRows = bounds.maxRow - bounds.minRow + 1
+  const byGrid = new Map(
+    result.rays.map((ray) => [`${ray.column}:${ray.row}`, ray]),
+  )
+
+  let maxPathLength = 0
+  for (const ray of result.rays) {
+    if (!isMeshUsableRay(ray, includeOccluded)) continue
+    if (
+      ray.column < bounds.minColumn
+      || ray.column > bounds.maxColumn
+      || ray.row < bounds.minRow
+      || ray.row > bounds.maxRow
+    ) {
+      continue
+    }
+    maxPathLength = Math.max(maxPathLength, rayPathLength(ray))
+  }
+
+  const nodes: WarpMeshNode[] = []
+
+  // Match Paul Bourke sample meshes: rows run bottom (y = -1) to top (y = +1).
+  for (let exportRow = 0; exportRow < exportRows; exportRow += 1) {
+    const rayRow = bounds.maxRow - exportRow
+
+    for (let exportColumn = 0; exportColumn < exportColumns; exportColumn += 1) {
+      const rayColumn = bounds.minColumn + exportColumn
+      const { x, y } = projectorCoordinates(
+        rayColumn,
+        rayRow,
+        sourceColumns,
+        sourceRows,
+        aspect,
+      )
+      const ray = byGrid.get(`${rayColumn}:${rayRow}`)
+
+      if (isMeshUsableRay(ray, includeOccluded)) {
+        const uv = directionToEquirectUV(ray.domeHit, orientation)
+        nodes.push({
+          x,
+          y,
+          u: uv.u,
+          v: uv.v,
+          intensity: pathLengthIntensity(rayPathLength(ray), maxPathLength),
+        })
+        continue
+      }
+
+      nodes.push({
+        x,
+        y,
+        u: 0,
+        v: 0,
+        intensity: -1,
+      })
+    }
+  }
 
   return {
     type: WARP_MESH_TYPE,
-    columns: nodes.length,
-    rows: 1,
+    columns: exportColumns,
+    rows: exportRows,
     nodes,
     bounds,
   }
