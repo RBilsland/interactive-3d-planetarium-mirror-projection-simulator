@@ -58,8 +58,11 @@ export function pathLengthIntensity(pathLength: number, maxPathLength: number): 
 export function isMeshUsableRay(
   ray: TracedRay | undefined,
   includeOccluded = false,
-): ray is TracedRay & { domeHit: NonNullable<TracedRay['domeHit']> } {
-  if (!ray?.domeHit) return false
+): ray is TracedRay & {
+  mirrorHit: NonNullable<TracedRay['mirrorHit']>
+  domeHit: NonNullable<TracedRay['domeHit']>
+} {
+  if (!ray?.domeHit || !ray.mirrorHit) return false
   if (ray.status === 'valid') return true
   return includeOccluded && ray.status === 'occluded'
 }
