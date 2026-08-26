@@ -3,6 +3,12 @@ import './style.css'
 import { PlanetariumScene } from './scene/PlanetariumScene'
 import { createProfileStore } from './simulation/profiles'
 import {
+  buildSetupExport,
+  downloadSetupExport,
+  sanitizeSetupFilename,
+  serializeSetupExport,
+} from './simulation/setupExport'
+import {
   buildWarpMesh,
   downloadWarpMesh,
   sanitizeMeshFilename,
@@ -84,9 +90,14 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
           <p id="source-status" class="profile-status" role="status">
             No image loaded · recommended 4096×2048 (2:1)
           </p>
-          <button id="download-mesh" type="button" class="mesh-download">
-            Download warp mesh
-          </button>
+          <div class="export-actions">
+            <button id="download-mesh" type="button" class="mesh-download">
+              Download warp mesh
+            </button>
+            <button id="export-setup" type="button" class="mesh-download mesh-download-secondary">
+              Export setup JSON
+            </button>
+          </div>
         </section>
         <section class="profiles" aria-label="Saved setups">
           <p class="eyebrow">Saved setups</p>
@@ -371,6 +382,14 @@ document.querySelector('#source-clear')!.addEventListener('click', () => {
   scene.clearSourceImage()
   setSourceStatus('No image loaded · recommended 4096×2048 (2:1)')
   scheduleUpdate()
+})
+
+document.querySelector('#export-setup')!.addEventListener('click', () => {
+  const name = profileName.value.trim() || 'Untitled setup'
+  const setup = buildSetupExport(name, params, display, orientation)
+  const filename = sanitizeSetupFilename(name)
+  downloadSetupExport(serializeSetupExport(setup), filename)
+  setSourceStatus(`Exported ${filename} for Metal / external runtimes`)
 })
 
 document.querySelector('#download-mesh')!.addEventListener('click', () => {

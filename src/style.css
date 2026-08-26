@@ -315,6 +315,13 @@ h1 span {
   gap: 8px;
 }
 
+.export-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+  margin-top: 10px;
+}
+
 .file-button,
 .source-actions button,
 .mesh-download {
@@ -341,10 +348,15 @@ h1 span {
 
 .mesh-download {
   width: 100%;
-  margin-top: 10px;
   color: #0b1514;
   background: linear-gradient(90deg, #2f8c80, var(--cyan));
   border-color: transparent;
+}
+
+.mesh-download-secondary {
+  color: #9eb3c4;
+  background: #0c141e;
+  border-color: var(--line);
 }
 
 .file-button:hover,

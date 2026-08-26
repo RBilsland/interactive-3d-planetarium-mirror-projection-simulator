@@ -50,6 +50,8 @@ Projector coordinates `(x,y)` form a regular normalised screen grid (`-aspect…
 
 The live source preview uses the same footprint detection: it traces and tessellates only the projector region that maps onto the dome, rather than iterating the full ray grid every frame.
 
+**Export setup JSON** downloads the current optical parameters, source orientation, and mesh occlusion flag as `domecast-setup-v1` JSON. Use this file to recreate the same geometry in external runtimes such as a macOS Metal per-pixel warper.
+
 ## Coordinate system
 
 The simulation uses meters with `Z` up. The dome is centered at the origin with its base on `Z = 0`. The mirror stays in contact with the rear of the dome shell at any height: its rear face is flat, so it is pushed back until the top of that face meets the shell, sliding forward along the curve as its height rises. The projector faces backward toward it. Both the mirror and the projector can be dropped to floor level.
