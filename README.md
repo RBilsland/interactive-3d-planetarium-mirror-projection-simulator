@@ -40,13 +40,15 @@ Choose a 2:1 equirectangular image (ideally 4096×2048) under **Equirectangular 
 
 With **Source preview** enabled, the panorama is drawn only where valid projector rays hit the dome after reflecting from the mirror. Changing FOV, pitch, lens shift, or throw reshapes that footprint so you see what the projector would put on the sky — not the full hemisphere. **Source orientation** yaw/pitch/roll turn the panorama within that footprint. Longitude 0 faces the dome front (`+Y`); latitude runs from horizon to zenith.
 
-**Download warp mesh** exports a Paul Bourke rectangular mesh in the same style as `standard_16x9.data.txt`:
+**Download warp mesh** exports a Paul Bourke equirectangular mesh in the same style as `standard_16x9.data.txt`:
 
 1. Input type `4` (spherical / equirectangular panorama)
-2. Mesh size `100 60`
-3. 6,000 rows of `x y u v intensity`
+2. Sparse header `<mapped-node-count> 1` — only projector pixels that actually hit the dome are included
+3. One row per mapped node: `x y u v intensity`
 
-Projector coordinates `(x,y)` form a regular normalised screen grid (`-aspect…+aspect`, `-1…+1`). Texture coordinates `(u,v)` sample the equirectangular source at the dome direction each projector pixel would light after mirror reflection. Intensity is `1` for usable nodes and `-1` for missed nodes so consumers can skip unusable cells. By default chassis-occluded rays are excluded; turn on **Include occluded in mesh** to keep them in the download and in the source preview. The download filename uses the current saved-setup name when one is entered.
+Projector coordinates `(x,y)` are the normalised screen position of each lit pixel (`-aspect…+aspect`, `-1…+1`). Texture coordinates `(u,v)` sample the equirectangular source at the dome direction each projector pixel would light after mirror reflection. Intensity is always `1` because unmapped rays are omitted rather than written with a sentinel value. By default chassis-occluded rays are excluded; turn on **Include occluded in mesh** to keep them in the download and in the source preview. The download filename uses the current saved-setup name when one is entered.
+
+The live source preview uses the same footprint detection: it traces and tessellates only the projector region that maps onto the dome, rather than iterating the full ray grid every frame.
 
 ## Coordinate system
 

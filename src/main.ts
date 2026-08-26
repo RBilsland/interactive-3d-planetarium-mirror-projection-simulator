@@ -381,7 +381,7 @@ document.querySelector('#download-mesh')!.addEventListener('click', () => {
   const text = serializeWarpMesh(mesh)
   const filename = sanitizeMeshFilename(profileName.value || 'domecast_equirect')
   downloadWarpMesh(text, filename)
-  setSourceStatus(`Downloaded ${filename} (${mesh.columns}×${mesh.rows})`)
+  setSourceStatus(`Downloaded ${filename} (${mesh.nodes.length} mapped nodes)`)
 })
 
 renderProfileList()

@@ -40,9 +40,10 @@ import {
   getProjectorCenter,
   traceProjection,
 } from '../simulation/rayTracer'
-import { isMeshUsableRay } from '../simulation/warpMesh'
+import { isMeshUsableRay, expandGridBounds, scaleGridBounds, getUsableRayGridBounds } from '../simulation/warpMesh'
 import type {
   DisplayOptions,
+  GridBounds,
   SimulationParameters,
   SourceOrientation,
   TraceResult,
@@ -214,17 +215,40 @@ export class PlanetariumScene {
       display.showSourcePreview && this.sourceTexture !== null
     this.projectedImage.visible = showProjected
     if (showProjected) {
-      const preview = traceProjection({
-        ...params,
-        gridColumns: PREVIEW_COLUMNS,
-        gridRows: PREVIEW_ROWS,
-      })
-      this.writeProjectedImage(
-        preview.rays,
-        params.domeRadius,
-        orientation,
+      const footprint = getUsableRayGridBounds(
+        result.rays,
         display.includeOccludedInMesh,
       )
+      if (!footprint) {
+        this.projectedImage.visible = false
+      } else {
+        const previewBounds = expandGridBounds(
+          scaleGridBounds(
+            footprint,
+            params.gridColumns,
+            params.gridRows,
+            PREVIEW_COLUMNS,
+            PREVIEW_ROWS,
+          ),
+          PREVIEW_COLUMNS,
+          PREVIEW_ROWS,
+        )
+        const preview = traceProjection(
+          {
+            ...params,
+            gridColumns: PREVIEW_COLUMNS,
+            gridRows: PREVIEW_ROWS,
+          },
+          { gridBounds: previewBounds },
+        )
+        this.writeProjectedImage(
+          preview.rays,
+          params.domeRadius,
+          orientation,
+          display.includeOccludedInMesh,
+          previewBounds,
+        )
+      }
     }
 
     return result
@@ -628,8 +652,11 @@ export class PlanetariumScene {
     domeRadius: number,
     orientation: SourceOrientation,
     includeOccluded: boolean,
+    gridBounds: GridBounds,
   ): void {
-    const maxVertices = Math.max(0, (PREVIEW_COLUMNS - 1) * (PREVIEW_ROWS - 1) * 6)
+    const columnSpan = gridBounds.maxColumn - gridBounds.minColumn
+    const rowSpan = gridBounds.maxRow - gridBounds.minRow
+    const maxVertices = Math.max(0, columnSpan * rowSpan * 6)
     this.projectedPositions = this.ensureCapacity(
       this.projectedImage,
       this.projectedPositions,
@@ -703,8 +730,8 @@ export class PlanetariumScene {
       }
     }
 
-    for (let row = 0; row < PREVIEW_ROWS - 1; row += 1) {
-      for (let column = 0; column < PREVIEW_COLUMNS - 1; column += 1) {
+    for (let row = gridBounds.minRow; row < gridBounds.maxRow; row += 1) {
+      for (let column = gridBounds.minColumn; column < gridBounds.maxColumn; column += 1) {
         const topLeft = sample(lookup.get(`${column}:${row}`))
         const topRight = sample(lookup.get(`${column + 1}:${row}`))
         const bottomLeft = sample(lookup.get(`${column}:${row + 1}`))

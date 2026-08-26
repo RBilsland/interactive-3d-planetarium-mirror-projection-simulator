@@ -1,6 +1,7 @@
 import { aspectRatioValue, traceProjection } from './rayTracer'
 import { directionToEquirectUV, formatMeshNumber } from './equirect'
 import type {
+  GridBounds,
   SimulationParameters,
   SourceOrientation,
   TracedRay,
@@ -27,9 +28,13 @@ export interface WarpMeshNode {
 
 export interface WarpMesh {
   type: number
+  /** Usable node count for sparse Bourke export (`count 1` header). */
   columns: number
+  /** Always `1` for sparse export — only mapped nodes are written. */
   rows: number
   nodes: WarpMeshNode[]
+  /** Projector grid bounds that contain every exported node. */
+  bounds: GridBounds | null
 }
 
 /** Rays that reach the dome and should feed warp / preview mesh geometry. */
@@ -42,10 +47,79 @@ export function isMeshUsableRay(
   return includeOccluded && ray.status === 'occluded'
 }
 
+/** Inclusive grid indices of rays that can contribute to mesh geometry. */
+export function getUsableRayGridBounds(
+  rays: TracedRay[],
+  includeOccluded = false,
+): GridBounds | null {
+  let minColumn = Infinity
+  let maxColumn = -Infinity
+  let minRow = Infinity
+  let maxRow = -Infinity
+
+  for (const ray of rays) {
+    if (!isMeshUsableRay(ray, includeOccluded)) continue
+    minColumn = Math.min(minColumn, ray.column)
+    maxColumn = Math.max(maxColumn, ray.column)
+    minRow = Math.min(minRow, ray.row)
+    maxRow = Math.max(maxRow, ray.row)
+  }
+
+  if (!Number.isFinite(minColumn)) return null
+
+  return { minColumn, maxColumn, minRow, maxRow }
+}
+
+export function expandGridBounds(
+  bounds: GridBounds,
+  columns: number,
+  rows: number,
+  margin = 1,
+): GridBounds {
+  return {
+    minColumn: Math.max(0, bounds.minColumn - margin),
+    maxColumn: Math.min(columns - 1, bounds.maxColumn + margin),
+    minRow: Math.max(0, bounds.minRow - margin),
+    maxRow: Math.min(rows - 1, bounds.maxRow + margin),
+  }
+}
+
+/** Map bounds from one ray grid resolution to another. */
+export function scaleGridBounds(
+  bounds: GridBounds,
+  fromColumns: number,
+  fromRows: number,
+  toColumns: number,
+  toRows: number,
+): GridBounds {
+  const columnScale = (toColumns - 1) / Math.max(1, fromColumns - 1)
+  const rowScale = (toRows - 1) / Math.max(1, fromRows - 1)
+
+  return {
+    minColumn: Math.max(0, Math.floor(bounds.minColumn * columnScale)),
+    maxColumn: Math.min(toColumns - 1, Math.ceil(bounds.maxColumn * columnScale)),
+    minRow: Math.max(0, Math.floor(bounds.minRow * rowScale)),
+    maxRow: Math.min(toRows - 1, Math.ceil(bounds.maxRow * rowScale)),
+  }
+}
+
+function projectorCoordinates(
+  column: number,
+  row: number,
+  columns: number,
+  rows: number,
+  aspect: number,
+): { x: number; y: number } {
+  const exportRow = rows - 1 - row
+  return {
+    x: -aspect + (column / (columns - 1)) * aspect * 2,
+    y: -1 + (exportRow / (rows - 1)) * 2,
+  }
+}
+
 /**
- * Builds a Paul Bourke rectangular warp mesh for an equirectangular source.
- * Projector (x,y) forms a regular grid in normalised screen space; (u,v) sample
- * the panorama at the dome direction each projector pixel would light.
+ * Builds a Paul Bourke equirectangular warp mesh containing only projector
+ * pixels that actually map onto the dome. Unmapped rays are omitted entirely.
  */
 export function buildWarpMesh(
   params: SimulationParameters,
@@ -56,52 +130,39 @@ export function buildWarpMesh(
   const orientation = options.orientation ?? { yaw: 0, pitch: 0, roll: 0 }
   const includeOccluded = options.includeOccluded ?? false
   const aspect = aspectRatioValue(params.aspectRatio)
+
   const result = traceProjection({
     ...params,
     gridColumns: columns,
     gridRows: rows,
   })
+  const bounds = getUsableRayGridBounds(result.rays, includeOccluded)
+
   const nodes: WarpMeshNode[] = []
-  const byGrid = new Map(
-    result.rays.map((ray) => [`${ray.column}:${ray.row}`, ray]),
-  )
-
-  // Match Paul Bourke sample meshes: rows run bottom (y = -1) to top (y = +1).
-  for (let exportRow = 0; exportRow < rows; exportRow += 1) {
-    const y = -1 + (exportRow / (rows - 1)) * 2
-    const rayRow = rows - 1 - exportRow
-
-    for (let column = 0; column < columns; column += 1) {
-      const x = -aspect + (column / (columns - 1)) * aspect * 2
-      const ray = byGrid.get(`${column}:${rayRow}`)
-
-      if (isMeshUsableRay(ray, includeOccluded)) {
-        const uv = directionToEquirectUV(ray.domeHit, orientation)
-        nodes.push({
-          x,
-          y,
-          u: uv.u,
-          v: uv.v,
-          intensity: 1,
-        })
-        continue
-      }
-
-      nodes.push({
-        x,
-        y,
-        u: 0,
-        v: 0,
-        intensity: -1,
-      })
-    }
+  for (const ray of result.rays) {
+    if (!isMeshUsableRay(ray, includeOccluded)) continue
+    const uv = directionToEquirectUV(ray.domeHit, orientation)
+    const { x, y } = projectorCoordinates(ray.column, ray.row, columns, rows, aspect)
+    nodes.push({
+      x,
+      y,
+      u: uv.u,
+      v: uv.v,
+      intensity: 1,
+    })
   }
+
+  nodes.sort((left, right) => {
+    if (left.y !== right.y) return left.y - right.y
+    return left.x - right.x
+  })
 
   return {
     type: WARP_MESH_TYPE,
-    columns,
-    rows,
+    columns: nodes.length,
+    rows: 1,
     nodes,
+    bounds,
   }
 }
 

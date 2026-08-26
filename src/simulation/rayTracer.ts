@@ -1,5 +1,6 @@
 import { Euler, Vector3 } from 'three'
 import type {
+  GridBounds,
   SimulationParameters,
   TraceResult,
   TracedRay,
@@ -249,7 +250,14 @@ function calculateMirrorUse(
   return Math.min(100, (litArea / quarterSphereArea) * 100)
 }
 
-export function traceProjection(params: SimulationParameters): TraceResult {
+export interface TraceOptions {
+  gridBounds?: GridBounds
+}
+
+export function traceProjection(
+  params: SimulationParameters,
+  options: TraceOptions = {},
+): TraceResult {
   const rays: TracedRay[] = []
   const mirrorCenter = getMirrorCenter(params)
   const projectorCenter = getProjectorCenter(params)
@@ -258,11 +266,15 @@ export function traceProjection(params: SimulationParameters): TraceResult {
   const verticalHalfAngle = (params.projectorFov * Math.PI) / 360
   const verticalScale = Math.tan(verticalHalfAngle)
   const horizontalScale = verticalScale * aspectRatioValue(params.aspectRatio)
+  const rowStart = options.gridBounds?.minRow ?? 0
+  const rowEnd = options.gridBounds?.maxRow ?? params.gridRows - 1
+  const columnStart = options.gridBounds?.minColumn ?? 0
+  const columnEnd = options.gridBounds?.maxColumn ?? params.gridColumns - 1
 
-  for (let row = 0; row < params.gridRows; row += 1) {
+  for (let row = rowStart; row <= rowEnd; row += 1) {
     const v = 1 - (row / (params.gridRows - 1)) * 2
 
-    for (let column = 0; column < params.gridColumns; column += 1) {
+    for (let column = columnStart; column <= columnEnd; column += 1) {
       const u = (column / (params.gridColumns - 1)) * 2 - 1
       // Lens shift offsets the optical axis without rotating the chassis.
       // 1.0 = 100% of image height/width (NDC span is 2).

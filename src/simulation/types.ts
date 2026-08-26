@@ -3,6 +3,14 @@ import type { Vector3 } from 'three'
 export type AspectRatio = '16:9' | '16:10' | '4:3'
 export type RayStatus = 'valid' | 'overshot' | 'occluded'
 
+/** Inclusive projector pixel-grid indices limiting which rays are traced. */
+export interface GridBounds {
+  minColumn: number
+  maxColumn: number
+  minRow: number
+  maxRow: number
+}
+
 export interface SimulationParameters {
   domeRadius: number
   mirrorRadius: number
