@@ -11,6 +11,12 @@ npm run dev
 
 Open the local URL printed by Vite. Drag to orbit, scroll to zoom, and right-drag to pan.
 
+## Live demo
+
+https://rbilsland.github.io/interactive-3d-planetarium-mirror-projection-simulator/
+
+Pushes to `main` run tests, build the site, and deploy it to GitHub Pages automatically.
+
 ## Features
 
 - Adjustable dome, mirror, and projector geometry in meters
