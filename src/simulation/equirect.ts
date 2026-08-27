@@ -49,7 +49,7 @@ function applyOrientation(
 }
 
 /**
- * Infers source layout from pixel aspect. `1:1` → full-frame fisheye,
+ * Infers source layout from pixel aspect. `1:1` → hemispherical fisheye,
  * `2:1` → equirectangular; anything else is rejected.
  */
 export function detectSourceProjection(
@@ -84,8 +84,9 @@ export function directionToEquirectUV(
 }
 
 /**
- * Full-frame angular fisheye: zenith at the image centre, 180° FOV to the
- * square corners. Azimuth 0 (+Y front) maps toward the bottom of the frame.
+ * Angular fisheye for a square fulldome master: zenith at the image centre,
+ * horizon (dome base) on the inscribed circle that touches the mid-edges.
+ * Azimuth 0 (+Y front) maps toward the bottom of the frame.
  */
 export function directionToFisheyeUV(
   direction: Vector3,
@@ -94,8 +95,8 @@ export function directionToFisheyeUV(
   const rotated = applyOrientation(direction, orientation)
   const azimuth = Math.atan2(rotated.x, rotated.y)
   const polar = Math.acos(MathUtils.clamp(rotated.z, -1, 1))
-  // Diagonal of the unit UV square is √2; half-diagonal reaches the corners.
-  const radius = (polar / (Math.PI / 2)) * Math.SQRT1_2
+  // polar = π/2 (horizon) → radius 0.5 (mid-edge of the square).
+  const radius = polar / Math.PI
   const u = 0.5 + radius * Math.sin(azimuth)
   const v = 0.5 + radius * Math.cos(azimuth)
   return { u, v }

@@ -38,7 +38,7 @@ Pushes to `main` run tests, build the site, and deploy it to GitHub Pages automa
 
 Choose a source image under **Dome source image**. Aspect ratio selects the layout automatically:
 
-- **1:1** → full-frame fisheye (zenith at centre, 180° to the square corners)
+- **1:1** → hemispherical fisheye (zenith at centre, horizon on the image circle)
 - **2:1** → equirectangular panorama (ideally 4096×2048)
 
 Any other aspect ratio is rejected. The image is held only for the current session through an object URL; named setups store geometry, display toggles, and orientation, but not the image file itself. Re-select the image after loading a saved setup.

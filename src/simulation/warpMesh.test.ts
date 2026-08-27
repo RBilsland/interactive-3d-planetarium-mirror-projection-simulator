@@ -85,12 +85,10 @@ describe('fisheye mapping', () => {
     expect(uv.v).toBeCloseTo(0.5)
   })
 
-  it('places the dome front near the bottom edge mid-point for full-frame', () => {
+  it('places the dome front on the bottom mid-edge at the horizon', () => {
     const uv = directionToFisheyeUV(new Vector3(0, 1, 0))
     expect(uv.u).toBeCloseTo(0.5)
-    // Horizon is inside the square; full-frame puts 180° at the corners.
-    expect(uv.v).toBeGreaterThan(0.5)
-    expect(uv.v).toBeCloseTo(0.5 + Math.SQRT1_2)
+    expect(uv.v).toBeCloseTo(1)
   })
 })
 

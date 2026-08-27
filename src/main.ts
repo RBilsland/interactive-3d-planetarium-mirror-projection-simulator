@@ -222,19 +222,41 @@ const lensFolder = gui.addFolder('Lens shift')
 bind(lensFolder.add(params, 'lensShiftVertical', -1, 1, 0.01).name('Vertical · image heights'))
 
 const orientationFolder = gui.addFolder('Source orientation')
-const orientationControllers = [
-  bind(orientationFolder.add(orientation, 'yaw', -180, 180, 0.5).name('Yaw · °')),
-  bind(orientationFolder.add(orientation, 'pitch', -180, 180, 0.5).name('Pitch · °')),
-  bind(orientationFolder.add(orientation, 'roll', -180, 180, 0.5).name('Roll · °')),
-]
+const yawController = bind(
+  orientationFolder.add(orientation, 'yaw', -180, 180, 0.5).name('Yaw · °'),
+)
+const pitchController = bind(
+  orientationFolder.add(orientation, 'pitch', -180, 180, 0.5).name('Pitch · °'),
+)
+const rollController = bind(
+  orientationFolder.add(orientation, 'roll', -180, 180, 0.5).name('Roll · °'),
+)
 
-const setOrientationEnabled = (enabled: boolean): void => {
-  for (const controller of orientationControllers) {
-    if (enabled) controller.enable()
-    else controller.disable()
+const setOrientationControls = (
+  mode: 'off' | 'fisheye' | 'equirectangular',
+): void => {
+  if (mode === 'off') {
+    yawController.disable()
+    pitchController.disable()
+    rollController.disable()
+    return
   }
+
+  yawController.enable()
+  if (mode === 'fisheye') {
+    orientation.pitch = 0
+    orientation.roll = 0
+    pitchController.updateDisplay()
+    rollController.updateDisplay()
+    pitchController.disable()
+    rollController.disable()
+    return
+  }
+
+  pitchController.enable()
+  rollController.enable()
 }
-setOrientationEnabled(false)
+setOrientationControls('off')
 
 const displayFolder = gui.addFolder('Viewport layers')
 bind(displayFolder.add(display, 'showRays').name('Ray bundle'))
@@ -391,13 +413,13 @@ sourceFile.addEventListener('change', async () => {
     const resolutionHint = `${size.width}×${size.height}`
     const kindHint =
       size.projection === 'fisheye'
-        ? 'full-frame fisheye'
+        ? 'fisheye'
         : 'equirectangular'
     setSourceStatus(`Loaded ${resolutionHint} · ${kindHint}`)
-    setOrientationEnabled(true)
+    setOrientationControls(size.projection)
     scheduleUpdate()
   } catch (error) {
-    setOrientationEnabled(false)
+    setOrientationControls('off')
     if (error instanceof Error && error.message === 'INVALID_SOURCE_ASPECT') {
       setSourceStatus(
         'Invalid source image · use a 1:1 fisheye or 2:1 equirectangular image',
@@ -412,7 +434,7 @@ sourceFile.addEventListener('change', async () => {
 
 document.querySelector('#source-clear')!.addEventListener('click', () => {
   scene.clearSourceImage()
-  setOrientationEnabled(false)
+  setOrientationControls('off')
   setSourceStatus('No image loaded · 1:1 fisheye or 2:1 equirectangular')
   scheduleUpdate()
 })
