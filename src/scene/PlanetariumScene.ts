@@ -5,6 +5,7 @@ import {
   BufferAttribute,
   BufferGeometry,
   CircleGeometry,
+  ClampToEdgeWrapping,
   Color,
   CylinderGeometry,
   DirectionalLight,
@@ -34,9 +35,12 @@ import {
   WebGLRenderer,
 } from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
-import { directionToEquirectUV } from '../simulation/equirect'
+import { directionToSourceUV, detectSourceProjection } from '../simulation/equirect'
 import {
+  getDomeRadius,
   getMirrorCenter,
+  getMirrorRadius,
+  getMirrorRotation,
   getProjectorCenter,
   traceProjection,
 } from '../simulation/rayTracer'
@@ -46,6 +50,7 @@ import type {
   GridBounds,
   SimulationParameters,
   SourceOrientation,
+  SourceProjection,
   TraceResult,
   TracedRay,
 } from '../simulation/types'
@@ -96,6 +101,7 @@ export class PlanetariumScene {
 
   private sourceTexture: Texture | null = null
   private sourceObjectUrl: string | null = null
+  private sourceProjection: SourceProjection | null = null
   private animationFrame = 0
   private contextLossCount = 0
 
@@ -181,19 +187,22 @@ export class PlanetariumScene {
     orientation: SourceOrientation = { yaw: 0, pitch: 0, roll: 0 },
   ): TraceResult {
     const result = traceProjection(params)
+    const domeRadius = getDomeRadius(params)
+    const mirrorRadius = getMirrorRadius(params)
 
-    this.domeShell.scale.setScalar(params.domeRadius)
-    this.domeWireframe.scale.setScalar(params.domeRadius)
-    this.domeRim.scale.set(params.domeRadius, 1, params.domeRadius)
+    this.domeShell.scale.setScalar(domeRadius)
+    this.domeWireframe.scale.setScalar(domeRadius)
+    this.domeRim.scale.set(domeRadius, 1, domeRadius)
     this.domeShell.material = this.domeDefaultMaterial
 
-    this.ground.scale.setScalar(params.domeRadius * 1.08)
-    this.groundGrid.scale.set(params.domeRadius * 2.15, 1, params.domeRadius * 2.15)
+    this.ground.scale.setScalar(domeRadius * 1.08)
+    this.groundGrid.scale.set(domeRadius * 2.15, 1, domeRadius * 2.15)
     this.ground.visible = display.showGround
     this.groundGrid.visible = display.showGround
 
     this.mirror.position.copy(getMirrorCenter(params))
-    this.mirror.scale.setScalar(params.mirrorRadius)
+    this.mirror.rotation.copy(getMirrorRotation(params))
+    this.mirror.scale.setScalar(mirrorRadius)
 
     this.projector.position.copy(getProjectorCenter(params))
     this.projector.rotation.x = (params.projectorPitch * Math.PI) / 180
@@ -205,7 +214,7 @@ export class PlanetariumScene {
     this.projector.visible = display.showProjector
 
     this.rayLines.visible = display.showRays
-    if (display.showRays) this.writeRayBundle(result.rays, params.domeRadius)
+    if (display.showRays) this.writeRayBundle(result.rays, domeRadius)
 
     this.gridLines.visible = display.showPixelGrid
     this.gridPoints.visible = display.showPixelGrid
@@ -243,10 +252,11 @@ export class PlanetariumScene {
         )
         this.writeProjectedImage(
           preview.rays,
-          params.domeRadius,
+          domeRadius,
           orientation,
           display.includeOccludedInMesh,
           previewBounds,
+          this.sourceProjection ?? 'equirectangular',
         )
       }
     }
@@ -254,24 +264,38 @@ export class PlanetariumScene {
     return result
   }
 
-  async setSourceImage(file: File): Promise<{ width: number; height: number }> {
+  async setSourceImage(
+    file: File,
+  ): Promise<{ width: number; height: number; projection: SourceProjection }> {
     const objectUrl = URL.createObjectURL(file)
     try {
       const texture = await new TextureLoader().loadAsync(objectUrl)
+      const image = texture.image as { width: number; height: number }
+      const projection = detectSourceProjection(image.width, image.height)
+      if (!projection) {
+        texture.dispose()
+        URL.revokeObjectURL(objectUrl)
+        throw new Error('INVALID_SOURCE_ASPECT')
+      }
+
       texture.colorSpace = SRGBColorSpace
-      texture.wrapS = RepeatWrapping
+      texture.wrapS =
+        projection === 'equirectangular' ? RepeatWrapping : ClampToEdgeWrapping
+      texture.wrapT = ClampToEdgeWrapping
       texture.needsUpdate = true
 
       this.clearSourceImage(false)
       this.sourceObjectUrl = objectUrl
       this.sourceTexture = texture
+      this.sourceProjection = projection
       this.projectedImageMaterial.map = texture
       this.projectedImageMaterial.needsUpdate = true
 
-      const image = texture.image as { width: number; height: number }
-      return { width: image.width, height: image.height }
+      return { width: image.width, height: image.height, projection }
     } catch (error) {
-      URL.revokeObjectURL(objectUrl)
+      if (!(error instanceof Error && error.message === 'INVALID_SOURCE_ASPECT')) {
+        URL.revokeObjectURL(objectUrl)
+      }
       throw error
     }
   }
@@ -285,6 +309,7 @@ export class PlanetariumScene {
       URL.revokeObjectURL(this.sourceObjectUrl)
     }
     this.sourceObjectUrl = null
+    this.sourceProjection = null
     this.projectedImageMaterial.map = null
     this.projectedImageMaterial.needsUpdate = true
     this.projectedImage.visible = false
@@ -293,6 +318,10 @@ export class PlanetariumScene {
 
   hasSourceImage(): boolean {
     return this.sourceTexture !== null
+  }
+
+  getSourceProjection(): SourceProjection | null {
+    return this.sourceProjection
   }
 
   private createProjectedImage(): Mesh {
@@ -607,7 +636,7 @@ export class PlanetariumScene {
     )
 
     const lookup = new Map(rays.map((ray) => [`${ray.column}:${ray.row}`, ray]))
-    const shrink = 1 - 0.006 / params.domeRadius
+    const shrink = 1 - 0.006 / getDomeRadius(params)
     const linePositions = this.gridLinePositions
     const pointPositions = this.gridPointPositions
     let lineOffset = 0
@@ -653,6 +682,7 @@ export class PlanetariumScene {
     orientation: SourceOrientation,
     includeOccluded: boolean,
     gridBounds: GridBounds,
+    sourceProjection: SourceProjection,
   ): void {
     const columnSpan = gridBounds.maxColumn - gridBounds.minColumn
     const rowSpan = gridBounds.maxRow - gridBounds.minRow
@@ -681,7 +711,7 @@ export class PlanetariumScene {
 
     const sample = (ray: TracedRay | undefined) => {
       if (!isMeshUsableRay(ray, includeOccluded)) return null
-      const uv = directionToEquirectUV(ray.domeHit, orientation)
+      const uv = directionToSourceUV(ray.domeHit, sourceProjection, orientation)
       return {
         x: ray.domeHit.x * shrink,
         y: ray.domeHit.y * shrink,

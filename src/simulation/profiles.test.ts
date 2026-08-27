@@ -3,9 +3,10 @@ import { createProfileStore, MemoryStorage } from './profiles'
 import type { DisplayOptions, SimulationParameters } from './types'
 
 const parameters: SimulationParameters = {
-  domeRadius: 6,
-  mirrorRadius: 0.8,
+  domeDiameter: 12,
+  mirrorDiameter: 1.6,
   mirrorHeight: 0.4,
+  mirrorPitch: 12,
   projectorDistance: 2,
   projectorHeight: 0.5,
   projectorPitch: -12,
@@ -35,7 +36,8 @@ describe('saved profiles', () => {
     expect(listed).toHaveLength(1)
     expect(listed[0].name).toBe('Hall A')
     expect(listed[0].id).toBe(saved.id)
-    expect(store.load(saved.id)?.parameters.domeRadius).toBe(6)
+    expect(store.load(saved.id)?.parameters.domeDiameter).toBe(12)
+    expect(store.load(saved.id)?.parameters.mirrorPitch).toBe(12)
     expect(store.load(saved.id)?.parameters.lensShiftHorizontal).toBe(0)
     expect(store.load(saved.id)?.display.showRays).toBe(false)
   })
@@ -45,13 +47,13 @@ describe('saved profiles', () => {
     const first = store.save('School dome', parameters, display)
     const second = store.save('school dome', {
       ...parameters,
-      domeRadius: 8,
+      domeDiameter: 16,
     }, display)
 
     expect(second.id).toBe(first.id)
     expect(store.list()).toHaveLength(1)
     expect(store.list()[0].name).toBe('school dome')
-    expect(store.list()[0].parameters.domeRadius).toBe(8)
+    expect(store.list()[0].parameters.domeDiameter).toBe(16)
   })
 
   it('deletes a profile that is no longer needed', () => {
@@ -84,8 +86,8 @@ describe('saved profiles', () => {
     )
 
     const loaded = store.load('abc')
-    expect(loaded?.parameters.domeRadius).toBe(7)
-    expect(loaded?.parameters.mirrorRadius).toBe(0.65)
+    expect(loaded?.parameters.domeDiameter).toBe(14)
+    expect(loaded?.parameters.mirrorDiameter).toBe(1.3)
     expect(loaded?.parameters.aspectRatio).toBe('16:9')
     expect(loaded?.display.showRays).toBe(false)
     expect(loaded?.display.showGround).toBe(true)
@@ -126,5 +128,58 @@ describe('saved profiles', () => {
     expect(legacy?.orientation).toEqual({ yaw: 0, pitch: 0, roll: 0 })
     expect(legacy?.display.showSourcePreview).toBe(true)
     expect(legacy?.display.includeOccludedInMesh).toBe(false)
+  })
+
+  it('migrates v1 centre-to-centre distances to front-to-front', () => {
+    const storage = new MemoryStorage()
+    storage.setItem(
+      'domecast.profiles.v1',
+      JSON.stringify([
+        {
+          id: 'legacy-distance',
+          name: 'Legacy distance',
+          savedAt: 1,
+          parameters: {
+            domeRadius: 5,
+            mirrorRadius: 0.65,
+            projectorDistance: 1.5,
+          },
+          display: { showRays: true },
+        },
+      ]),
+    )
+
+    const store = createProfileStore(storage)
+    const loaded = store.load('legacy-distance')
+    expect(loaded?.parameters.projectorDistance).toBeCloseTo(0.51)
+    expect(loaded?.parameters.domeDiameter).toBe(10)
+    expect(loaded?.parameters.mirrorDiameter).toBeCloseTo(1.3)
+    expect(storage.getItem('domecast.profiles.v3')).toBeTruthy()
+    expect(storage.getItem('domecast.profiles.v1')).toBeNull()
+  })
+
+  it('migrates v2 vertical FOV to diagonal FOV', () => {
+    const storage = new MemoryStorage()
+    storage.setItem(
+      'domecast.profiles.v2',
+      JSON.stringify([
+        {
+          id: 'legacy-fov',
+          name: 'Legacy FOV',
+          savedAt: 1,
+          parameters: {
+            projectorFov: 28,
+            aspectRatio: '16:9',
+          },
+          display: { showRays: true },
+        },
+      ]),
+    )
+
+    const store = createProfileStore(storage)
+    const loaded = store.load('legacy-fov')
+    expect(loaded?.parameters.projectorFov).toBeCloseTo(53.91, 1)
+    expect(storage.getItem('domecast.profiles.v3')).toBeTruthy()
+    expect(storage.getItem('domecast.profiles.v2')).toBeNull()
   })
 })

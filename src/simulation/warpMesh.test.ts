@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { Vector3 } from 'three'
-import { directionToEquirectUV, formatMeshNumber } from './equirect'
+import {
+  detectSourceProjection,
+  directionToEquirectUV,
+  directionToFisheyeUV,
+  formatMeshNumber,
+  warpMeshTypeForProjection,
+} from './equirect'
 import {
   buildWarpMesh,
   expandGridBounds,
@@ -19,15 +25,16 @@ import {
 import type { SimulationParameters } from './types'
 
 const parameters: SimulationParameters = {
-  domeRadius: 5,
-  mirrorRadius: 0.65,
+  domeDiameter: 10,
+  mirrorDiameter: 1.3,
   mirrorHeight: 1.15,
-  projectorDistance: 1.5,
+  mirrorPitch: 0,
+  projectorDistance: 0.51,
   projectorHeight: 1.15,
   projectorPitch: 0,
   lensShiftVertical: 0,
   lensShiftHorizontal: 0,
-  projectorFov: 28,
+  projectorFov: 54,
   aspectRatio: '16:9',
   gridColumns: 32,
   gridRows: 18,
@@ -55,6 +62,35 @@ describe('equirectangular mapping', () => {
     })
     expect(yawed.u).not.toBeCloseTo(baseline.u)
     expect(yawed.v).toBeCloseTo(baseline.v, 3)
+  })
+})
+
+describe('source projection detection', () => {
+  it('treats square images as fisheye and 2:1 as equirectangular', () => {
+    expect(detectSourceProjection(2048, 2048)).toBe('fisheye')
+    expect(detectSourceProjection(4096, 2048)).toBe('equirectangular')
+    expect(detectSourceProjection(1920, 1080)).toBeNull()
+  })
+
+  it('maps Bourke mesh types for each projection', () => {
+    expect(warpMeshTypeForProjection('fisheye')).toBe(2)
+    expect(warpMeshTypeForProjection('equirectangular')).toBe(4)
+  })
+})
+
+describe('fisheye mapping', () => {
+  it('places zenith at the image centre', () => {
+    const uv = directionToFisheyeUV(new Vector3(0, 0, 1))
+    expect(uv.u).toBeCloseTo(0.5)
+    expect(uv.v).toBeCloseTo(0.5)
+  })
+
+  it('places the dome front near the bottom edge mid-point for full-frame', () => {
+    const uv = directionToFisheyeUV(new Vector3(0, 1, 0))
+    expect(uv.u).toBeCloseTo(0.5)
+    // Horizon is inside the square; full-frame puts 180° at the corners.
+    expect(uv.v).toBeGreaterThan(0.5)
+    expect(uv.v).toBeCloseTo(0.5 + Math.SQRT1_2)
   })
 })
 
@@ -89,6 +125,12 @@ describe('warp mesh export', () => {
     expect(lines[0]).toBe('4')
     expect(lines[1]).toBe(`${mesh.columns} ${mesh.rows}`)
     expect(lines).toHaveLength(2 + mesh.columns * mesh.rows)
+  })
+
+  it('tags fisheye exports as Bourke type 2', () => {
+    const mesh = buildWarpMesh(parameters, { sourceProjection: 'fisheye' })
+    expect(mesh.type).toBe(2)
+    expect(serializeWarpMesh(mesh).split('\n')[0]).toBe('2')
   })
 
   it('emits a regular projector grid in row-major order', () => {

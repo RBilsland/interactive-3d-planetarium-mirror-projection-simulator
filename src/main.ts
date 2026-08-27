@@ -3,6 +3,9 @@ import './style.css'
 import { PlanetariumScene } from './scene/PlanetariumScene'
 import { createProfileStore } from './simulation/profiles'
 import {
+  getMaxProjectorDistance,
+} from './simulation/rayTracer'
+import {
   buildSetupExport,
   downloadSetupExport,
   sanitizeSetupFilename,
@@ -21,15 +24,16 @@ import type {
 } from './simulation/types'
 
 const params: SimulationParameters = {
-  domeRadius: 5,
-  mirrorRadius: 0.65,
+  domeDiameter: 10,
+  mirrorDiameter: 1.3,
   mirrorHeight: 1.15,
-  projectorDistance: 1.5,
+  mirrorPitch: 0,
+  projectorDistance: 0.51,
   projectorHeight: 1.15,
   projectorPitch: 0,
   lensShiftVertical: 0,
   lensShiftHorizontal: 0,
-  projectorFov: 28,
+  projectorFov: 54,
   aspectRatio: '16:9',
   gridColumns: 32,
   gridRows: 18,
@@ -78,8 +82,8 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
           <button id="reset-parameters" class="icon-button" title="Reset parameters" aria-label="Reset parameters">↺</button>
         </div>
         <div id="gui-container"></div>
-        <section class="source-panel" aria-label="Equirectangular source">
-          <p class="eyebrow">Equirectangular source</p>
+        <section class="source-panel" aria-label="Dome source image">
+          <p class="eyebrow">Dome source image</p>
           <div class="source-actions">
             <label class="file-button" for="source-file">
               Choose image
@@ -88,7 +92,7 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
             <button id="source-clear" type="button">Clear</button>
           </div>
           <p id="source-status" class="profile-status" role="status">
-            No image loaded · recommended 4096×2048 (2:1)
+            No image loaded · 1:1 fisheye or 2:1 equirectangular
           </p>
           <div class="export-actions">
             <button id="download-mesh" type="button" class="mesh-download">
@@ -188,24 +192,49 @@ const bind = (controller: ReturnType<GUI['add']>) =>
   controller.onChange(scheduleUpdate)
 
 const geometryFolder = gui.addFolder('Environment')
-bind(geometryFolder.add(params, 'domeRadius', 2.5, 10, 0.1).name('Dome radius · m'))
-bind(geometryFolder.add(params, 'mirrorRadius', 0.2, 1.5, 0.01).name('Mirror radius · m'))
+bind(geometryFolder.add(params, 'domeDiameter', 5, 20, 0.1).name('Dome diameter · m'))
+bind(geometryFolder.add(params, 'mirrorDiameter', 0.4, 3, 0.02).name('Mirror diameter · m'))
 bind(geometryFolder.add(params, 'mirrorHeight', 0, 3.5, 0.05).name('Mirror height · m'))
+bind(geometryFolder.add(params, 'mirrorPitch', 0, 60, 0.25).name('Mirror pitch down · °'))
 
 const projectorFolder = gui.addFolder('Projector')
-bind(projectorFolder.add(params, 'projectorDistance', 0.75, 4, 0.05).name('Mirror distance · m'))
+const distanceController = bind(
+  projectorFolder
+    .add(params, 'projectorDistance', 0, getMaxProjectorDistance(params), 0.05)
+    .name('Mirror distance · m'),
+)
 bind(projectorFolder.add(params, 'projectorHeight', 0, 3.5, 0.05).name('Height · m'))
 bind(projectorFolder.add(params, 'projectorPitch', -30, 30, 0.25).name('Pitch · °'))
-bind(projectorFolder.add(params, 'projectorFov', 10, 75, 0.5).name('Vertical FOV · °'))
+bind(projectorFolder.add(params, 'projectorFov', 20, 120, 0.5).name('Diagonal FOV · °'))
 bind(projectorFolder.add(params, 'aspectRatio', ['16:9', '16:10', '4:3']).name('Aspect ratio'))
+
+const syncProjectorDistanceRange = (): void => {
+  const maxDistance = getMaxProjectorDistance(params)
+  distanceController.max(Math.max(maxDistance, 0.05))
+  params.projectorDistance = Math.min(
+    Math.max(0, params.projectorDistance),
+    maxDistance,
+  )
+  distanceController.updateDisplay()
+}
 
 const lensFolder = gui.addFolder('Lens shift')
 bind(lensFolder.add(params, 'lensShiftVertical', -1, 1, 0.01).name('Vertical · image heights'))
 
 const orientationFolder = gui.addFolder('Source orientation')
-bind(orientationFolder.add(orientation, 'yaw', -180, 180, 0.5).name('Yaw · °'))
-bind(orientationFolder.add(orientation, 'pitch', -180, 180, 0.5).name('Pitch · °'))
-bind(orientationFolder.add(orientation, 'roll', -180, 180, 0.5).name('Roll · °'))
+const orientationControllers = [
+  bind(orientationFolder.add(orientation, 'yaw', -180, 180, 0.5).name('Yaw · °')),
+  bind(orientationFolder.add(orientation, 'pitch', -180, 180, 0.5).name('Pitch · °')),
+  bind(orientationFolder.add(orientation, 'roll', -180, 180, 0.5).name('Roll · °')),
+]
+
+const setOrientationEnabled = (enabled: boolean): void => {
+  for (const controller of orientationControllers) {
+    if (enabled) controller.enable()
+    else controller.disable()
+  }
+}
+setOrientationEnabled(false)
 
 const displayFolder = gui.addFolder('Viewport layers')
 bind(displayFolder.add(display, 'showRays').name('Ray bundle'))
@@ -339,7 +368,7 @@ profileList.addEventListener('click', (event) => {
     scheduleUpdate()
     renderProfileList(loaded.id)
     setProfileStatus(
-      `Loaded “${loaded.name}”. Re-select the equirectangular image if needed.`,
+      `Loaded “${loaded.name}”. Re-select the source image if needed.`,
     )
     return
   }
@@ -359,20 +388,23 @@ sourceFile.addEventListener('change', async () => {
 
   try {
     const size = await scene.setSourceImage(file)
-    const ratio = size.width / Math.max(1, size.height)
-    const ratioOk = Math.abs(ratio - 2) < 0.05
-    const resolutionHint =
-      size.width === 4096 && size.height === 2048
-        ? '4K equirectangular'
-        : `${size.width}×${size.height}`
-    setSourceStatus(
-      ratioOk
-        ? `Loaded ${resolutionHint}`
-        : `Loaded ${resolutionHint} · expected ~2:1 aspect`,
-    )
+    const resolutionHint = `${size.width}×${size.height}`
+    const kindHint =
+      size.projection === 'fisheye'
+        ? 'full-frame fisheye'
+        : 'equirectangular'
+    setSourceStatus(`Loaded ${resolutionHint} · ${kindHint}`)
+    setOrientationEnabled(true)
     scheduleUpdate()
-  } catch {
-    setSourceStatus('Could not load that image.')
+  } catch (error) {
+    setOrientationEnabled(false)
+    if (error instanceof Error && error.message === 'INVALID_SOURCE_ASPECT') {
+      setSourceStatus(
+        'Invalid source image · use a 1:1 fisheye or 2:1 equirectangular image',
+      )
+    } else {
+      setSourceStatus('Could not load that image.')
+    }
   } finally {
     sourceFile.value = ''
   }
@@ -380,7 +412,8 @@ sourceFile.addEventListener('change', async () => {
 
 document.querySelector('#source-clear')!.addEventListener('click', () => {
   scene.clearSourceImage()
-  setSourceStatus('No image loaded · recommended 4096×2048 (2:1)')
+  setOrientationEnabled(false)
+  setSourceStatus('No image loaded · 1:1 fisheye or 2:1 equirectangular')
   scheduleUpdate()
 })
 
@@ -393,12 +426,16 @@ document.querySelector('#export-setup')!.addEventListener('click', () => {
 })
 
 document.querySelector('#download-mesh')!.addEventListener('click', () => {
+  const sourceProjection = scene.getSourceProjection() ?? 'equirectangular'
   const mesh = buildWarpMesh(params, {
     orientation,
     includeOccluded: display.includeOccludedInMesh,
+    sourceProjection,
   })
   const text = serializeWarpMesh(mesh)
-  const filename = sanitizeMeshFilename(profileName.value || 'domecast_equirect')
+  const fallbackName =
+    sourceProjection === 'fisheye' ? 'domecast_fisheye' : 'domecast_equirect'
+  const filename = sanitizeMeshFilename(profileName.value || fallbackName)
   downloadWarpMesh(text, filename)
   setSourceStatus(
     `Downloaded ${filename} (${mesh.columns}×${mesh.rows}, ${mesh.nodes.filter((node) => node.intensity > 0).length} mapped)`,
@@ -408,6 +445,7 @@ document.querySelector('#download-mesh')!.addEventListener('click', () => {
 renderProfileList()
 
 function updateSimulation(): void {
+  syncProjectorDistanceRange()
   const result = scene.update(params, display, orientation)
   const coverage = result.coveragePercent
   document.querySelector('#coverage-value')!.textContent = `${coverage.toFixed(1)}%`

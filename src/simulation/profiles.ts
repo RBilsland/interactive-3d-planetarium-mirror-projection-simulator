@@ -1,3 +1,8 @@
+import {
+  getMaxProjectorDistance,
+  PROJECTOR_HALF_SIZE,
+  verticalFovToDiagonal,
+} from './rayTracer'
 import type {
   AspectRatio,
   DisplayOptions,
@@ -5,7 +10,9 @@ import type {
   SourceOrientation,
 } from './types'
 
-export const PROFILE_STORAGE_KEY = 'domecast.profiles.v1'
+export const PROFILE_STORAGE_KEY = 'domecast.profiles.v3'
+const LEGACY_PROFILE_STORAGE_KEY = 'domecast.profiles.v2'
+const LEGACY_V1_PROFILE_STORAGE_KEY = 'domecast.profiles.v1'
 
 export interface SavedProfile {
   id: string
@@ -30,16 +37,18 @@ export interface ProfileStore {
 
 const ASPECT_RATIOS: AspectRatio[] = ['16:9', '16:10', '4:3']
 
+/** Preserves the previous default layout: 1.5 m centre-to-centre ≈ 0.51 m front-to-front. */
 const DEFAULT_PARAMETERS: SimulationParameters = {
-  domeRadius: 5,
-  mirrorRadius: 0.65,
+  domeDiameter: 10,
+  mirrorDiameter: 1.3,
   mirrorHeight: 1.15,
-  projectorDistance: 1.5,
+  mirrorPitch: 0,
+  projectorDistance: 0.51,
   projectorHeight: 1.15,
   projectorPitch: 0,
   lensShiftVertical: 0,
   lensShiftHorizontal: 0,
-  projectorFov: 28,
+  projectorFov: 54,
   aspectRatio: '16:9',
   gridColumns: 32,
   gridRows: 18,
@@ -96,20 +105,62 @@ function boolean(value: unknown, fallback: boolean): boolean {
   return typeof value === 'boolean' ? value : fallback
 }
 
-function sanitizeParameters(raw: unknown): SimulationParameters {
-  const source = (raw ?? {}) as Partial<SimulationParameters>
+function sanitizeParameters(
+  raw: unknown,
+  options: {
+    migrateCentreToFrontDistance?: boolean
+    migrateVerticalToDiagonalFov?: boolean
+  } = {},
+): SimulationParameters {
+  const source = (raw ?? {}) as Partial<SimulationParameters> & {
+    domeRadius?: number
+    mirrorRadius?: number
+  }
   const aspectRatio = ASPECT_RATIOS.includes(source.aspectRatio as AspectRatio)
     ? (source.aspectRatio as AspectRatio)
     : DEFAULT_PARAMETERS.aspectRatio
 
-  return {
-    domeRadius: finite(source.domeRadius, DEFAULT_PARAMETERS.domeRadius),
-    mirrorRadius: finite(source.mirrorRadius, DEFAULT_PARAMETERS.mirrorRadius),
+  let projectorDistance = finite(
+    source.projectorDistance,
+    DEFAULT_PARAMETERS.projectorDistance,
+  )
+
+  // Prefer diameters; fall back to legacy radius fields (×2).
+  const mirrorDiameter = finite(
+    source.mirrorDiameter,
+    typeof source.mirrorRadius === 'number' && Number.isFinite(source.mirrorRadius)
+      ? source.mirrorRadius * 2
+      : DEFAULT_PARAMETERS.mirrorDiameter,
+  )
+  const domeDiameter = finite(
+    source.domeDiameter,
+    typeof source.domeRadius === 'number' && Number.isFinite(source.domeRadius)
+      ? source.domeRadius * 2
+      : DEFAULT_PARAMETERS.domeDiameter,
+  )
+  const mirrorRadius = mirrorDiameter * 0.5
+
+  // v1 stored centre-of-mirror to centre-of-projector; convert to front-to-front.
+  if (
+    options.migrateCentreToFrontDistance
+    && typeof source.projectorDistance === 'number'
+    && Number.isFinite(source.projectorDistance)
+  ) {
+    projectorDistance = Math.max(
+      0,
+      source.projectorDistance - PROJECTOR_HALF_SIZE.y - mirrorRadius,
+    )
+  }
+
+  const draft: SimulationParameters = {
+    domeDiameter,
+    mirrorDiameter,
     mirrorHeight: finite(source.mirrorHeight, DEFAULT_PARAMETERS.mirrorHeight),
-    projectorDistance: finite(
-      source.projectorDistance,
-      DEFAULT_PARAMETERS.projectorDistance,
+    mirrorPitch: Math.min(
+      60,
+      Math.max(0, finite(source.mirrorPitch, DEFAULT_PARAMETERS.mirrorPitch)),
     ),
+    projectorDistance,
     projectorHeight: finite(
       source.projectorHeight,
       DEFAULT_PARAMETERS.projectorHeight,
@@ -134,6 +185,25 @@ function sanitizeParameters(raw: unknown): SimulationParameters {
       Math.round(finite(source.gridRows, DEFAULT_PARAMETERS.gridRows)),
     ),
   }
+
+  draft.projectorDistance = Math.min(
+    Math.max(0, draft.projectorDistance),
+    getMaxProjectorDistance(draft),
+  )
+
+  // v2 stored vertical FOV; convert to diagonal for v3.
+  if (
+    options.migrateVerticalToDiagonalFov
+    && typeof source.projectorFov === 'number'
+    && Number.isFinite(source.projectorFov)
+  ) {
+    draft.projectorFov = verticalFovToDiagonal(
+      source.projectorFov,
+      draft.aspectRatio,
+    )
+  }
+
+  return draft
 }
 
 function sanitizeDisplay(raw: unknown): DisplayOptions {
@@ -163,7 +233,13 @@ function sanitizeOrientation(raw: unknown): SourceOrientation {
   }
 }
 
-function sanitizeProfile(raw: unknown): SavedProfile | null {
+function sanitizeProfile(
+  raw: unknown,
+  options: {
+    migrateCentreToFrontDistance?: boolean
+    migrateVerticalToDiagonalFov?: boolean
+  } = {},
+): SavedProfile | null {
   if (!raw || typeof raw !== 'object') return null
   const source = raw as Partial<SavedProfile>
   if (typeof source.id !== 'string' || source.id.length === 0) return null
@@ -175,7 +251,7 @@ function sanitizeProfile(raw: unknown): SavedProfile | null {
     id: source.id,
     name: source.name.trim(),
     savedAt: finite(source.savedAt, Date.now()),
-    parameters: sanitizeParameters(source.parameters),
+    parameters: sanitizeParameters(source.parameters, options),
     display: sanitizeDisplay(source.display),
     orientation: sanitizeOrientation(source.orientation),
   }
@@ -191,16 +267,47 @@ function newId(): string {
 export function createProfileStore(
   storage: Storage = window.localStorage,
 ): ProfileStore {
+  const parseProfiles = (
+    encoded: string | null,
+    options: {
+      migrateCentreToFrontDistance?: boolean
+      migrateVerticalToDiagonalFov?: boolean
+    } = {},
+  ): SavedProfile[] => {
+    if (!encoded) return []
+    const parsed = JSON.parse(encoded) as unknown
+    if (!Array.isArray(parsed)) return []
+    return parsed
+      .map((profile) => sanitizeProfile(profile, options))
+      .filter((profile): profile is SavedProfile => profile !== null)
+      .sort((a, b) => b.savedAt - a.savedAt)
+  }
+
   const read = (): SavedProfile[] => {
     try {
-      const encoded = storage.getItem(PROFILE_STORAGE_KEY)
-      if (!encoded) return []
-      const parsed = JSON.parse(encoded) as unknown
-      if (!Array.isArray(parsed)) return []
-      return parsed
-        .map(sanitizeProfile)
-        .filter((profile): profile is SavedProfile => profile !== null)
-        .sort((a, b) => b.savedAt - a.savedAt)
+      const current = parseProfiles(storage.getItem(PROFILE_STORAGE_KEY))
+      if (current.length > 0) return current
+
+      // One-shot migration from vertical FOV (v2) to diagonal FOV (v3).
+      const fromV2 = parseProfiles(storage.getItem(LEGACY_PROFILE_STORAGE_KEY), {
+        migrateVerticalToDiagonalFov: true,
+      })
+      if (fromV2.length > 0) {
+        storage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(fromV2))
+        storage.removeItem(LEGACY_PROFILE_STORAGE_KEY)
+        return fromV2
+      }
+
+      // One-shot migration from centre-to-centre distance (v1) to front-to-front (v2/v3).
+      const fromV1 = parseProfiles(storage.getItem(LEGACY_V1_PROFILE_STORAGE_KEY), {
+        migrateCentreToFrontDistance: true,
+        migrateVerticalToDiagonalFov: true,
+      })
+      if (fromV1.length > 0) {
+        storage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(fromV1))
+        storage.removeItem(LEGACY_V1_PROFILE_STORAGE_KEY)
+      }
+      return fromV1
     } catch {
       return []
     }

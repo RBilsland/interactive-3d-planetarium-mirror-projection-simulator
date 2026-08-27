@@ -7,7 +7,8 @@ import type {
 } from './types'
 
 const EPSILON = 1e-5
-const PROJECTOR_HALF_SIZE = new Vector3(0.24, 0.34, 0.13)
+/** Chassis half-extents in meters. Y is depth; the lens face points toward −Y. */
+export const PROJECTOR_HALF_SIZE = new Vector3(0.24, 0.34, 0.13)
 
 // Clearance is only meaningful near the chassis; beyond this the beam is simply free.
 const MAX_REPORTED_CLEARANCE = 2
@@ -17,27 +18,132 @@ export function aspectRatioValue(aspectRatio: string): number {
   return width / height
 }
 
+/** Half-angles (radians) for horizontal and vertical edges from diagonal FOV. */
+export function halfAnglesFromDiagonalFov(
+  diagonalFovDegrees: number,
+  aspectRatio: string,
+): { horizontalHalf: number; verticalHalf: number } {
+  const aspect = aspectRatioValue(aspectRatio)
+  const diagonalHalf = (diagonalFovDegrees * Math.PI) / 360
+  const tanDiagonal = Math.tan(diagonalHalf)
+  const scale = Math.sqrt(1 + aspect * aspect)
+  return {
+    verticalHalf: Math.atan(tanDiagonal / scale),
+    horizontalHalf: Math.atan((tanDiagonal * aspect) / scale),
+  }
+}
+
+/** Convert legacy vertical FOV (degrees) to equivalent diagonal FOV. */
+export function verticalFovToDiagonal(
+  verticalFovDegrees: number,
+  aspectRatio: string,
+): number {
+  const aspect = aspectRatioValue(aspectRatio)
+  const verticalHalf = (verticalFovDegrees * Math.PI) / 360
+  const diagonalHalf = Math.atan(
+    Math.tan(verticalHalf) * Math.sqrt(1 + aspect * aspect),
+  )
+  return (diagonalHalf * 360) / Math.PI
+}
+
+/**
+ * Unit direction for a normalised projector pixel (u,v in [-1,1]).
+ * Rays pass through a plane perpendicular to the optical axis (−Y). Lens shift
+ * translates that image on the plane (±1 = one full image height/width); FOV
+ * only sets the plane extent — the optical axis itself never tilts with shift.
+ */
+export function projectorRayDirection(
+  u: number,
+  v: number,
+  params: SimulationParameters,
+): Vector3 {
+  const { horizontalHalf, verticalHalf } = halfAnglesFromDiagonalFov(
+    params.projectorFov,
+    params.aspectRatio,
+  )
+  const horizontalScale = Math.tan(horizontalHalf)
+  const verticalScale = Math.tan(verticalHalf)
+
+  const planeX =
+    params.lensShiftHorizontal * 2 * horizontalScale + u * horizontalScale
+  const planeZ =
+    params.lensShiftVertical * 2 * verticalScale + v * verticalScale
+
+  return new Vector3(planeX, -1, planeZ).normalize()
+}
+
 // The mirror is a quarter sphere, so its rear face is flat and its point furthest
 // from the dome centre is the top of that face, at `mirrorHeight + mirrorRadius`.
 // Pushing the mirror back until that point lands on the shell keeps it in contact
 // with the dome at any height without letting the body poke through.
+export function getDomeRadius(params: SimulationParameters): number {
+  return params.domeDiameter * 0.5
+}
+
+export function getMirrorRadius(params: SimulationParameters): number {
+  return params.mirrorDiameter * 0.5
+}
+
 export function getMirrorCenter(params: SimulationParameters): Vector3 {
-  const maxHeight = Math.max(0, params.domeRadius - params.mirrorRadius)
+  const domeRadius = getDomeRadius(params)
+  const mirrorRadius = getMirrorRadius(params)
+  const maxHeight = Math.max(0, domeRadius - mirrorRadius)
   const height = Math.min(params.mirrorHeight, maxHeight)
-  const contactHeight = height + params.mirrorRadius
+  const contactHeight = height + mirrorRadius
 
   return new Vector3(
     0,
-    -Math.sqrt(Math.max(0, params.domeRadius ** 2 - contactHeight ** 2)),
+    -Math.sqrt(Math.max(0, domeRadius ** 2 - contactHeight ** 2)),
     height,
   )
 }
 
+/**
+ * World rotation of the mirror mesh. Positive `mirrorPitch` tips the optical
+ * face downward (toward a lower projector) around local +X.
+ */
+export function getMirrorRotation(params: SimulationParameters): Euler {
+  return new Euler((-params.mirrorPitch * Math.PI) / 180, 0, 0, 'XYZ')
+}
+
+/** True when a sphere-surface normal lies on the retained optical quarter. */
+export function isMirrorOpticalSurface(
+  worldNormal: Vector3,
+  params: SimulationParameters,
+): boolean {
+  // Inverse of getMirrorRotation: undo the pitch-down tip before the quarter test.
+  const localNormal = worldNormal
+    .clone()
+    .applyEuler(new Euler((params.mirrorPitch * Math.PI) / 180, 0, 0, 'XYZ'))
+  return localNormal.y >= -EPSILON && localNormal.z >= -EPSILON
+}
+
+/** +Y extremity of the optical surface (dome-facing front of the mirror). */
+export function getMirrorFrontY(params: SimulationParameters): number {
+  return getMirrorCenter(params).y + getMirrorRadius(params)
+}
+
+/**
+ * Largest front-to-front throw that still keeps the projector front at or behind
+ * the dome mid-plane (`Y = 0`).
+ */
+export function getMaxProjectorDistance(params: SimulationParameters): number {
+  return Math.max(0, -getMirrorFrontY(params))
+}
+
+/**
+ * Places the projector so `projectorDistance` is the gap from the front of the
+ * mirror to the front of the chassis (lens face). `0` means they touch; the
+ * upper limit is the dome centre line.
+ */
 export function getProjectorCenter(params: SimulationParameters): Vector3 {
-  const mirror = getMirrorCenter(params)
+  const distance = Math.min(
+    Math.max(0, params.projectorDistance),
+    getMaxProjectorDistance(params),
+  )
   return new Vector3(
     0,
-    mirror.y + params.projectorDistance,
+    getMirrorFrontY(params) + distance + PROJECTOR_HALF_SIZE.y,
     params.projectorHeight,
   )
 }
@@ -222,14 +328,15 @@ function litPatchArea(
 }
 
 function calculateCoverage(rays: TracedRay[], params: SimulationParameters): number {
+  const domeRadius = getDomeRadius(params)
   const coveredArea = litPatchArea(
     rays,
     (ray) => ray?.domeHit ?? null,
     new Vector3(),
-    params.domeRadius,
+    domeRadius,
     params,
   )
-  const hemisphereArea = 2 * Math.PI * params.domeRadius ** 2
+  const hemisphereArea = 2 * Math.PI * domeRadius ** 2
   return Math.min(100, (coveredArea / hemisphereArea) * 100)
 }
 
@@ -238,15 +345,16 @@ function calculateMirrorUse(
   params: SimulationParameters,
   mirrorCenter: Vector3,
 ): number {
+  const mirrorRadius = getMirrorRadius(params)
   const litArea = litPatchArea(
     rays,
     (ray) => ray?.mirrorHit ?? null,
     mirrorCenter,
-    params.mirrorRadius,
+    mirrorRadius,
     params,
   )
   // Optical surface is the +Y, +Z quarter of the sphere.
-  const quarterSphereArea = Math.PI * params.mirrorRadius ** 2
+  const quarterSphereArea = Math.PI * mirrorRadius ** 2
   return Math.min(100, (litArea / quarterSphereArea) * 100)
 }
 
@@ -263,9 +371,6 @@ export function traceProjection(
   const projectorCenter = getProjectorCenter(params)
   const pitchRadians = (params.projectorPitch * Math.PI) / 180
   const pitchRotation = new Euler(pitchRadians, 0, 0, 'XYZ')
-  const verticalHalfAngle = (params.projectorFov * Math.PI) / 360
-  const verticalScale = Math.tan(verticalHalfAngle)
-  const horizontalScale = verticalScale * aspectRatioValue(params.aspectRatio)
   const rowStart = options.gridBounds?.minRow ?? 0
   const rowEnd = options.gridBounds?.maxRow ?? params.gridRows - 1
   const columnStart = options.gridBounds?.minColumn ?? 0
@@ -276,16 +381,7 @@ export function traceProjection(
 
     for (let column = columnStart; column <= columnEnd; column += 1) {
       const u = (column / (params.gridColumns - 1)) * 2 - 1
-      // Lens shift offsets the optical axis without rotating the chassis.
-      // 1.0 = 100% of image height/width (NDC span is 2).
-      const shiftedU = u + params.lensShiftHorizontal * 2
-      const shiftedV = v + params.lensShiftVertical * 2
-      const direction = new Vector3(
-        shiftedU * horizontalScale,
-        -1,
-        shiftedV * verticalScale,
-      )
-        .normalize()
+      const direction = projectorRayDirection(u, v, params)
         .applyEuler(pitchRotation)
         .normalize()
 
@@ -304,7 +400,7 @@ export function traceProjection(
         projectorCenter,
         direction,
         mirrorCenter,
-        params.mirrorRadius,
+        getMirrorRadius(params),
       )
 
       if (mirrorDistance === null) {
@@ -317,9 +413,8 @@ export function traceProjection(
         .addScaledVector(direction, mirrorDistance)
       const mirrorNormal = mirrorHit.clone().sub(mirrorCenter).normalize()
 
-      // The mirror is a quarter sphere: it faces the dome centre (+Y) and stops at its
-      // own centre height, so anything below the cut plane misses the optical surface.
-      if (mirrorNormal.y < 0 || mirrorNormal.z < 0) {
+      // Quarter-sphere optical face, pitched with the mirror mesh.
+      if (!isMirrorOpticalSurface(mirrorNormal, params)) {
         rays.push(ray)
         continue
       }
@@ -332,7 +427,7 @@ export function traceProjection(
         mirrorHit.clone().addScaledVector(reflectedDirection, EPSILON * 2),
         reflectedDirection,
         new Vector3(),
-        params.domeRadius,
+        getDomeRadius(params),
       )
 
       if (domeDistance === null) {

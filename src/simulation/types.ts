@@ -2,6 +2,8 @@ import type { Vector3 } from 'three'
 
 export type AspectRatio = '16:9' | '16:10' | '4:3'
 export type RayStatus = 'valid' | 'overshot' | 'occluded'
+/** Fulldome source image layout inferred from pixel aspect. */
+export type SourceProjection = 'equirectangular' | 'fisheye'
 
 /** Inclusive projector pixel-grid indices limiting which rays are traced. */
 export interface GridBounds {
@@ -12,14 +14,18 @@ export interface GridBounds {
 }
 
 export interface SimulationParameters {
-  domeRadius: number
-  mirrorRadius: number
+  domeDiameter: number
+  mirrorDiameter: number
   mirrorHeight: number
+  /** Mirror pitch-down angle in degrees (`0` = upright). */
+  mirrorPitch: number
+  /** Front-of-mirror to front-of-projector gap in meters (`0` = touching). */
   projectorDistance: number
   projectorHeight: number
   projectorPitch: number
   lensShiftVertical: number
   lensShiftHorizontal: number
+  /** Diagonal field of view in degrees. */
   projectorFov: number
   aspectRatio: AspectRatio
   gridColumns: number

@@ -8,15 +8,16 @@ import {
 import type { DisplayOptions, SimulationParameters } from './types'
 
 const parameters: SimulationParameters = {
-  domeRadius: 5,
-  mirrorRadius: 0.65,
+  domeDiameter: 10,
+  mirrorDiameter: 1.3,
   mirrorHeight: 1.15,
-  projectorDistance: 1.5,
+  mirrorPitch: 0,
+  projectorDistance: 0.51,
   projectorHeight: 1.15,
   projectorPitch: 0,
   lensShiftVertical: 0,
   lensShiftHorizontal: 0,
-  projectorFov: 28,
+  projectorFov: 54,
   aspectRatio: '16:9',
   gridColumns: 32,
   gridRows: 18,

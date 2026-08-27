@@ -1,14 +1,20 @@
 import { aspectRatioValue, traceProjection } from './rayTracer'
-import { directionToEquirectUV, formatMeshNumber } from './equirect'
+import {
+  directionToSourceUV,
+  formatMeshNumber,
+  warpMeshTypeForProjection,
+} from './equirect'
 import type {
   GridBounds,
   SimulationParameters,
   SourceOrientation,
+  SourceProjection,
   TracedRay,
 } from './types'
 
 export const WARP_MESH_COLUMNS = 100
 export const WARP_MESH_ROWS = 60
+/** @deprecated Prefer warpMeshTypeForProjection(sourceProjection). */
 export const WARP_MESH_TYPE = 4
 
 export interface WarpMeshOptions {
@@ -16,6 +22,8 @@ export interface WarpMeshOptions {
   rows?: number
   orientation?: SourceOrientation
   includeOccluded?: boolean
+  /** Defaults to equirectangular (Bourke type 4). */
+  sourceProjection?: SourceProjection
 }
 
 export interface WarpMeshNode {
@@ -226,6 +234,8 @@ export function buildWarpMesh(
   const sourceRows = options.rows ?? WARP_MESH_ROWS
   const orientation = options.orientation ?? { yaw: 0, pitch: 0, roll: 0 }
   const includeOccluded = options.includeOccluded ?? false
+  const sourceProjection = options.sourceProjection ?? 'equirectangular'
+  const meshType = warpMeshTypeForProjection(sourceProjection)
   const aspect = aspectRatioValue(params.aspectRatio)
 
   const result = traceProjection({
@@ -236,7 +246,7 @@ export function buildWarpMesh(
   const usableBounds = getExportGridBounds(result.rays, includeOccluded)
   if (!usableBounds) {
     return {
-      type: WARP_MESH_TYPE,
+      type: meshType,
       columns: 0,
       rows: 0,
       nodes: [],
@@ -283,7 +293,7 @@ export function buildWarpMesh(
       const ray = byGrid.get(`${rayColumn}:${rayRow}`)
 
       if (isMeshUsableRay(ray, includeOccluded)) {
-        const uv = directionToEquirectUV(ray.domeHit, orientation)
+        const uv = directionToSourceUV(ray.domeHit, sourceProjection, orientation)
         nodes.push({
           x,
           y,
@@ -305,7 +315,7 @@ export function buildWarpMesh(
   }
 
   return {
-    type: WARP_MESH_TYPE,
+    type: meshType,
     columns: exportColumns,
     rows: exportRows,
     nodes,

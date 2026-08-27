@@ -1,7 +1,9 @@
 import { MathUtils, Vector3 } from 'three'
-import type { SourceOrientation } from './types'
+import type { SourceOrientation, SourceProjection } from './types'
 
 const TWO_PI = Math.PI * 2
+/** Accept 1:1 and 2:1 with a little encoder / crop slack. */
+const ASPECT_TOLERANCE = 0.05
 
 function rotateAroundX(vector: Vector3, radians: number): void {
   const cos = Math.cos(radians)
@@ -27,16 +29,10 @@ function rotateAroundZ(vector: Vector3, radians: number): void {
   vector.y = sin * x + cos * y
 }
 
-/**
- * Converts a world-space dome direction into equirectangular UV coordinates.
- * Longitude 0 faces +Y (dome front). Latitude 0 is the horizon and +1 is zenith.
- * Orientation rotates the source image before sampling (Z-up: yaw about Z,
- * pitch about X, roll about Y).
- */
-export function directionToEquirectUV(
+function applyOrientation(
   direction: Vector3,
-  orientation: SourceOrientation = { yaw: 0, pitch: 0, roll: 0 },
-): { u: number; v: number } {
+  orientation: SourceOrientation,
+): Vector3 {
   const rotated = direction.clone().normalize()
   if (
     orientation.yaw !== 0
@@ -44,18 +40,76 @@ export function directionToEquirectUV(
     || orientation.roll !== 0
   ) {
     // Inverse of the viewer orientation: rotate the lookup direction opposite
-    // the yaw/pitch/roll applied to the panorama.
+    // the yaw/pitch/roll applied to the source.
     rotateAroundZ(rotated, -MathUtils.degToRad(orientation.yaw))
     rotateAroundX(rotated, -MathUtils.degToRad(orientation.pitch))
     rotateAroundY(rotated, -MathUtils.degToRad(orientation.roll))
   }
+  return rotated
+}
 
+/**
+ * Infers source layout from pixel aspect. `1:1` → full-frame fisheye,
+ * `2:1` → equirectangular; anything else is rejected.
+ */
+export function detectSourceProjection(
+  width: number,
+  height: number,
+): SourceProjection | null {
+  const ratio = width / Math.max(1, height)
+  if (Math.abs(ratio - 1) <= ASPECT_TOLERANCE) return 'fisheye'
+  if (Math.abs(ratio - 2) <= ASPECT_TOLERANCE) return 'equirectangular'
+  return null
+}
+
+/** Paul Bourke warp-mesh type digit for a source projection. */
+export function warpMeshTypeForProjection(projection: SourceProjection): number {
+  return projection === 'fisheye' ? 2 : 4
+}
+
+/**
+ * Converts a world-space dome direction into equirectangular UV coordinates.
+ * Longitude 0 faces +Y (dome front). Latitude 0 is the horizon and +1 is zenith.
+ */
+export function directionToEquirectUV(
+  direction: Vector3,
+  orientation: SourceOrientation = { yaw: 0, pitch: 0, roll: 0 },
+): { u: number; v: number } {
+  const rotated = applyOrientation(direction, orientation)
   const longitude = Math.atan2(rotated.x, rotated.y)
   const latitude = Math.asin(MathUtils.clamp(rotated.z, -1, 1))
   const u = MathUtils.euclideanModulo(longitude / TWO_PI + 0.5, 1)
   const v = 0.5 - latitude / Math.PI
-
   return { u, v }
+}
+
+/**
+ * Full-frame angular fisheye: zenith at the image centre, 180° FOV to the
+ * square corners. Azimuth 0 (+Y front) maps toward the bottom of the frame.
+ */
+export function directionToFisheyeUV(
+  direction: Vector3,
+  orientation: SourceOrientation = { yaw: 0, pitch: 0, roll: 0 },
+): { u: number; v: number } {
+  const rotated = applyOrientation(direction, orientation)
+  const azimuth = Math.atan2(rotated.x, rotated.y)
+  const polar = Math.acos(MathUtils.clamp(rotated.z, -1, 1))
+  // Diagonal of the unit UV square is √2; half-diagonal reaches the corners.
+  const radius = (polar / (Math.PI / 2)) * Math.SQRT1_2
+  const u = 0.5 + radius * Math.sin(azimuth)
+  const v = 0.5 + radius * Math.cos(azimuth)
+  return { u, v }
+}
+
+/** Samples a dome direction in the active source projection. */
+export function directionToSourceUV(
+  direction: Vector3,
+  projection: SourceProjection,
+  orientation: SourceOrientation = { yaw: 0, pitch: 0, roll: 0 },
+): { u: number; v: number } {
+  return projection === 'fisheye'
+    ? directionToFisheyeUV(direction, orientation)
+    : directionToEquirectUV(direction, orientation)
 }
 
 export function formatMeshNumber(value: number): string {
