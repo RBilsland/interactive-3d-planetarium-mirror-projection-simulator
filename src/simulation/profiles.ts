@@ -60,6 +60,7 @@ const DEFAULT_DISPLAY: DisplayOptions = {
   showPixelGrid: true,
   showGround: true,
   showSourcePreview: true,
+  showApexMarker: false,
   excludeOccludedFromMesh: true,
 }
 
@@ -228,6 +229,7 @@ export function sanitizeDisplay(raw: unknown): DisplayOptions {
       source.showSourcePreview,
       DEFAULT_DISPLAY.showSourcePreview,
     ),
+    showApexMarker: boolean(source.showApexMarker, DEFAULT_DISPLAY.showApexMarker),
     excludeOccludedFromMesh,
   }
 }

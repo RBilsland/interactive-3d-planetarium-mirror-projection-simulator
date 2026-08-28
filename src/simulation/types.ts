@@ -45,6 +45,7 @@ export interface DisplayOptions {
   showGround: boolean
   showSourcePreview: boolean
   /** When true, chassis-shadowed rays still contribute to warp mesh and preview. */
+  showApexMarker: boolean
   excludeOccludedFromMesh: boolean
 }
 

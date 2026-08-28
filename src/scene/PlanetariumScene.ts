@@ -28,6 +28,7 @@ import {
   Points,
   PointsMaterial,
   RepeatWrapping,
+  RingGeometry,
   Scene,
   SphereGeometry,
   SRGBColorSpace,
@@ -106,6 +107,7 @@ export class PlanetariumScene {
   private readonly ground: Mesh
   private readonly groundGrid: GridHelper
   private readonly groundLabels: GroundLabel[]
+  private readonly apexMarker: Mesh
   private readonly mirror = new Group()
   private readonly projector = new Group()
   private readonly projectorLens: Mesh
@@ -187,6 +189,7 @@ export class PlanetariumScene {
     this.groundGrid = ground.grid
 
     this.groundLabels = this.createGroundLabels()
+    this.apexMarker = this.createApexMarker()
 
     this.createMirror()
     this.projectorLens = this.createProjector()
@@ -240,6 +243,11 @@ export class PlanetariumScene {
       label.mesh.scale.set(domeRadius * 0.34, domeRadius * 0.085, 1)
       label.mesh.visible = display.showGround
     }
+
+    // Sits just inside the shell so it never z-fights with the dome surface.
+    this.apexMarker.position.z = domeRadius * 0.995
+    this.apexMarker.scale.setScalar(domeRadius * 0.05)
+    this.apexMarker.visible = display.showApexMarker && this.viewMode === 'dome'
 
     this.mirror.position.copy(getMirrorCenter(params))
     this.mirror.rotation.copy(getMirrorRotation(params))
@@ -578,6 +586,27 @@ export class PlanetariumScene {
       this.createGroundLabel('BACK', 0, -1),
       this.createGroundLabel('LEFT', -1, 0),
     ]
+  }
+
+  /**
+   * Ring just inside the dome apex. Looking straight up from the centre gives
+   * no horizon to judge against, so this marks the zenith.
+   */
+  private createApexMarker(): Mesh {
+    const mesh = new Mesh(
+      new RingGeometry(0.78, 1, 48),
+      new MeshBasicMaterial({
+        color: 0xc3f4ff,
+        transparent: true,
+        opacity: 0.7,
+        side: DoubleSide,
+        depthWrite: false,
+      }),
+    )
+    mesh.renderOrder = 1
+    this.scene.add(mesh)
+
+    return mesh
   }
 
   private createGroundLabel(

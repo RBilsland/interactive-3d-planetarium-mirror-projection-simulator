@@ -47,6 +47,7 @@ const display: DisplayOptions = {
   showPixelGrid: true,
   showGround: true,
   showSourcePreview: true,
+  showApexMarker: false,
   excludeOccludedFromMesh: true,
 }
 
@@ -415,7 +416,15 @@ const layerControllers = {
   showSourcePreview: bind(
     displayFolder.add(display, 'showSourcePreview').name('Source preview'),
   ),
+  showApexMarker: bind(
+    displayFolder.add(display, 'showApexMarker').name('Dome apex'),
+  ),
 }
+
+// The apex ring only means anything from the centre of the dome, so it stays
+// off and locked until the observer goes inside.
+layerControllers.showApexMarker.disable()
+
 /** Layers the dome view forces while the observer is inside the dome. */
 const DOME_VIEW_LAYERS: Partial<DisplayOptions> = {
   showRays: false,
@@ -448,6 +457,10 @@ const applyViewMode = (mode: ViewMode): void => {
   if (mode === 'dome') {
     if (!flyLayers) flyLayers = { ...display }
     enforceViewLayers()
+    // Unlike the locked layers, the apex ring becomes the observer's to choose,
+    // starting on each time they step inside.
+    display.showApexMarker = true
+    layerControllers.showApexMarker.enable()
   } else {
     if (flyLayers) {
       Object.assign(display, flyLayers)
@@ -456,6 +469,8 @@ const applyViewMode = (mode: ViewMode): void => {
     for (const controller of Object.values(layerControllers)) {
       controller.enable()
     }
+    display.showApexMarker = false
+    layerControllers.showApexMarker.disable()
   }
 
   scene.setViewMode(mode)

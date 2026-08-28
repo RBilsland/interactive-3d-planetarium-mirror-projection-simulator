@@ -24,6 +24,7 @@ const display: DisplayOptions = {
   showPixelGrid: false,
   showGround: true,
   showSourcePreview: true,
+  showApexMarker: true,
   excludeOccludedFromMesh: true,
 }
 

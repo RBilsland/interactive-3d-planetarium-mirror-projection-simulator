@@ -30,6 +30,7 @@ const display: DisplayOptions = {
   showPixelGrid: true,
   showGround: true,
   showSourcePreview: true,
+  showApexMarker: true,
   excludeOccludedFromMesh: true,
 }
 
