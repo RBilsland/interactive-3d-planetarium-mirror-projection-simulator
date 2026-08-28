@@ -1,6 +1,7 @@
 import GUI from 'lil-gui'
 import './style.css'
 import { PlanetariumScene } from './scene/PlanetariumScene'
+import type { ViewMode } from './scene/PlanetariumScene'
 import { createProfileStore } from './simulation/profiles'
 import {
   getMaxProjectorDistance,
@@ -259,16 +260,78 @@ const setOrientationControls = (
 setOrientationControls('off')
 
 const displayFolder = gui.addFolder('Viewport layers')
-bind(displayFolder.add(display, 'showRays').name('Ray bundle'))
-bind(displayFolder.add(display, 'showProjector').name('Projector chassis'))
-bind(displayFolder.add(display, 'showPixelGrid').name('Dome pixel grid'))
-bind(displayFolder.add(display, 'showGround').name('Ground plane'))
-bind(displayFolder.add(display, 'showSourcePreview').name('Source preview'))
+const layerControllers = {
+  showRays: bind(displayFolder.add(display, 'showRays').name('Ray bundle')),
+  showProjector: bind(
+    displayFolder.add(display, 'showProjector').name('Projector chassis'),
+  ),
+  showPixelGrid: bind(
+    displayFolder.add(display, 'showPixelGrid').name('Dome pixel grid'),
+  ),
+  showGround: bind(displayFolder.add(display, 'showGround').name('Ground plane')),
+  showSourcePreview: bind(
+    displayFolder.add(display, 'showSourcePreview').name('Source preview'),
+  ),
+}
 bind(
   displayFolder
     .add(display, 'includeOccludedInMesh')
     .name('Include occluded in mesh'),
 )
+
+/** Layers the dome view forces while the observer is inside the dome. */
+const DOME_VIEW_LAYERS: Partial<DisplayOptions> = {
+  showRays: false,
+  showPixelGrid: false,
+  showGround: true,
+  showSourcePreview: true,
+}
+
+const view = { mode: 'fly' as ViewMode }
+let flyLayers: DisplayOptions | null = null
+
+/**
+ * Re-asserts the locked layers so anything that writes to `display` while the
+ * observer is inside the dome (loading a source or a saved setup) cannot switch
+ * the ray bundle or pixel grid back on underneath them.
+ */
+const enforceViewLayers = (): void => {
+  if (view.mode !== 'dome') return
+  Object.assign(display, DOME_VIEW_LAYERS)
+  for (const key of Object.keys(DOME_VIEW_LAYERS) as (keyof typeof layerControllers)[]) {
+    layerControllers[key].disable()
+  }
+}
+
+/** Layer state to fall back to when the observer leaves the dome view. */
+const rememberFlyLayers = (layers: DisplayOptions): void => {
+  if (view.mode === 'dome') flyLayers = { ...layers }
+}
+
+const applyViewMode = (mode: ViewMode): void => {
+  if (mode === 'dome') {
+    if (!flyLayers) flyLayers = { ...display }
+    enforceViewLayers()
+  } else {
+    if (flyLayers) {
+      Object.assign(display, flyLayers)
+      flyLayers = null
+    }
+    for (const controller of Object.values(layerControllers)) {
+      controller.enable()
+    }
+  }
+
+  scene.setViewMode(mode)
+  applyControllers()
+  scheduleUpdate()
+}
+
+const viewFolder = gui.addFolder('View')
+viewFolder
+  .add(view, 'mode', { Fly: 'fly', 'Inside dome': 'dome' })
+  .name('Camera')
+  .onChange((mode: ViewMode) => applyViewMode(mode))
 
 const defaults = { ...params }
 const defaultOrientation = { ...orientation }
@@ -384,6 +447,9 @@ profileList.addEventListener('click', (event) => {
     Object.assign(params, loaded.parameters)
     Object.assign(display, loaded.display)
     Object.assign(orientation, loaded.orientation)
+    // Inside the dome the saved layers wait until the observer flies back out.
+    rememberFlyLayers(loaded.display)
+    enforceViewLayers()
     params.lensShiftHorizontal = 0
     profileName.value = loaded.name
     applyControllers()
@@ -468,6 +534,7 @@ renderProfileList()
 
 function updateSimulation(): void {
   syncProjectorDistanceRange()
+  enforceViewLayers()
   const result = scene.update(params, display, orientation)
   const coverage = result.coveragePercent
   document.querySelector('#coverage-value')!.textContent = `${coverage.toFixed(1)}%`

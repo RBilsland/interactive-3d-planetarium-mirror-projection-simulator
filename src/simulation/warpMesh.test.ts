@@ -41,16 +41,29 @@ const parameters: SimulationParameters = {
 }
 
 describe('equirectangular mapping', () => {
-  it('maps the dome front to the panorama centre', () => {
+  it('maps the dome front to the panorama horizon', () => {
     const uv = directionToEquirectUV(new Vector3(0, 1, 0))
-    expect(uv.u).toBeCloseTo(0.5)
+    // The baked 180° pitch puts the front on the wrap seam, which repeats.
+    expect(Math.min(uv.u, 1 - uv.u)).toBeCloseTo(0)
     expect(uv.v).toBeCloseTo(0.5)
   })
 
-  it('maps zenith near the top of the panorama', () => {
+  it('maps zenith to the far edge in latitude', () => {
     const uv = directionToEquirectUV(new Vector3(0, 0, 1))
-    expect(uv.u).toBeCloseTo(0.5)
-    expect(uv.v).toBeCloseTo(0)
+    expect(uv.v).toBeCloseTo(1)
+  })
+
+  it('starts equirectangular sources upright without user pitch', () => {
+    const zenith = directionToEquirectUV(new Vector3(0, 0, 1))
+    const manualPitch = directionToEquirectUV(new Vector3(0, 0, 1), {
+      yaw: 0,
+      pitch: 180,
+      roll: 0,
+    })
+
+    // A user pitch of 180 now moves away from the default, rather than into it.
+    expect(zenith.v).toBeCloseTo(1)
+    expect(manualPitch.v).toBeCloseTo(0)
   })
 
   it('rotates longitude when yaw is applied', () => {
@@ -62,6 +75,14 @@ describe('equirectangular mapping', () => {
     })
     expect(yawed.u).not.toBeCloseTo(baseline.u)
     expect(yawed.v).toBeCloseTo(baseline.v, 3)
+  })
+
+  it('samples mirrored in longitude so the reflected image reads correctly', () => {
+    const domeRight = directionToEquirectUV(new Vector3(1, 0, 0))
+    const domeLeft = directionToEquirectUV(new Vector3(-1, 0, 0))
+
+    expect(domeRight.u).toBeCloseTo(0.25)
+    expect(domeLeft.u).toBeCloseTo(0.75)
   })
 })
 
@@ -89,6 +110,14 @@ describe('fisheye mapping', () => {
     const uv = directionToFisheyeUV(new Vector3(0, 1, 0))
     expect(uv.u).toBeCloseTo(0.5)
     expect(uv.v).toBeCloseTo(1)
+  })
+
+  it('samples mirrored in azimuth so the reflected image reads correctly', () => {
+    const domeRight = directionToFisheyeUV(new Vector3(1, 0, 0))
+    const domeLeft = directionToFisheyeUV(new Vector3(-1, 0, 0))
+
+    expect(domeRight.u).toBeCloseTo(0)
+    expect(domeLeft.u).toBeCloseTo(1)
   })
 })
 

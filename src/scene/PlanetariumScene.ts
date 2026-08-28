@@ -4,6 +4,7 @@ import {
   BoxGeometry,
   BufferAttribute,
   BufferGeometry,
+  CanvasTexture,
   CircleGeometry,
   ClampToEdgeWrapping,
   Color,
@@ -23,6 +24,7 @@ import {
   MeshStandardMaterial,
   Object3D,
   PerspectiveCamera,
+  PlaneGeometry,
   Points,
   PointsMaterial,
   RepeatWrapping,
@@ -65,6 +67,16 @@ const STATUS_COLORS = {
 const PREVIEW_COLUMNS = 64
 const PREVIEW_ROWS = 36
 
+/** Seated-observer eye height at the dome centre, in meters. */
+const DOME_VIEW_EYE_HEIGHT = 1.5
+/**
+ * Orbit radius used to fake a look-around camera: the pivot sits just in front
+ * of the lens, so rotating it turns the view without moving the observer.
+ */
+const DOME_VIEW_PIVOT_DISTANCE = 0.01
+
+export type ViewMode = 'fly' | 'dome'
+
 /**
  * Renders the simulation. Every mesh is built once at unit size and resized by
  * transform alone: rebuilding geometry per parameter change churns through GPU
@@ -85,6 +97,8 @@ export class PlanetariumScene {
   private readonly projectedImageMaterial: MeshBasicMaterial
   private readonly ground: Mesh
   private readonly groundGrid: GridHelper
+  private readonly frontLabel: Mesh
+  private readonly frontLabelTexture: CanvasTexture
   private readonly mirror = new Group()
   private readonly projector = new Group()
   private readonly projectorLens: Mesh
@@ -104,6 +118,11 @@ export class PlanetariumScene {
   private sourceProjection: SourceProjection | null = null
   private animationFrame = 0
   private contextLossCount = 0
+  private viewMode: ViewMode = 'fly'
+  private flyCameraState: {
+    position: Vector3
+    target: Vector3
+  } | null = null
 
   constructor(container: HTMLElement) {
     this.container = container
@@ -160,6 +179,10 @@ export class PlanetariumScene {
     this.ground = ground.disc
     this.groundGrid = ground.grid
 
+    const frontLabel = this.createFrontLabel()
+    this.frontLabel = frontLabel.mesh
+    this.frontLabelTexture = frontLabel.texture
+
     this.createMirror()
     this.projectorLens = this.createProjector()
 
@@ -195,10 +218,20 @@ export class PlanetariumScene {
     this.domeRim.scale.set(domeRadius, 1, domeRadius)
     this.domeShell.material = this.domeDefaultMaterial
 
+    const insideDome = this.viewMode === 'dome'
     this.ground.scale.setScalar(domeRadius * 1.08)
     this.groundGrid.scale.set(domeRadius * 2.15, 1, domeRadius * 2.15)
     this.ground.visible = display.showGround
-    this.groundGrid.visible = display.showGround
+    // From inside, the grid spills past the dome shell and clutters the view.
+    this.groundGrid.visible = display.showGround && !insideDome
+    const groundMaterial = this.ground.material as MeshStandardMaterial
+    groundMaterial.opacity = insideDome ? 0.35 : 0.86
+
+    // Just inside the dome rim so it stays readable even when the projected
+    // image reaches the dome base.
+    this.frontLabel.position.y = domeRadius * 0.87
+    this.frontLabel.scale.set(domeRadius * 0.34, domeRadius * 0.085, 1)
+    this.frontLabel.visible = display.showGround
 
     this.mirror.position.copy(getMirrorCenter(params))
     this.mirror.rotation.copy(getMirrorRotation(params))
@@ -262,6 +295,56 @@ export class PlanetariumScene {
     }
 
     return result
+  }
+
+  getViewMode(): ViewMode {
+    return this.viewMode
+  }
+
+  /**
+   * `fly` orbits the whole rig freely. `dome` pins the observer at the dome
+   * centre and only lets them look around, restoring the previous fly camera
+   * when they come back out.
+   */
+  setViewMode(mode: ViewMode): void {
+    if (mode === this.viewMode) return
+    this.viewMode = mode
+
+    if (mode === 'dome') {
+      this.flyCameraState = {
+        position: this.camera.position.clone(),
+        target: this.controls.target.clone(),
+      }
+
+      const eye = new Vector3(0, 0, DOME_VIEW_EYE_HEIGHT)
+      // Keep facing the dome front so the "FRONT" marker lines up on entry.
+      const pivot = eye
+        .clone()
+        .add(new Vector3(0, DOME_VIEW_PIVOT_DISTANCE, 0))
+
+      this.camera.position.copy(eye)
+      this.controls.target.copy(pivot)
+      this.controls.enablePan = false
+      this.controls.enableZoom = false
+      this.controls.minDistance = DOME_VIEW_PIVOT_DISTANCE
+      this.controls.maxDistance = DOME_VIEW_PIVOT_DISTANCE
+      this.controls.maxPolarAngle = Math.PI
+      this.controls.update()
+      return
+    }
+
+    this.controls.enablePan = true
+    this.controls.enableZoom = true
+    this.controls.minDistance = 2
+    this.controls.maxDistance = 28
+    this.controls.maxPolarAngle = Math.PI * 0.92
+
+    if (this.flyCameraState) {
+      this.camera.position.copy(this.flyCameraState.position)
+      this.controls.target.copy(this.flyCameraState.target)
+      this.flyCameraState = null
+    }
+    this.controls.update()
   }
 
   async setSourceImage(
@@ -476,6 +559,45 @@ export class PlanetariumScene {
     this.scene.add(grid)
 
     return { disc, grid }
+  }
+
+  /** Ground marker at the dome front (+Y) so the viewport keeps its bearings. */
+  private createFrontLabel(): { mesh: Mesh; texture: CanvasTexture } {
+    const canvas = document.createElement('canvas')
+    canvas.width = 512
+    canvas.height = 128
+
+    const context = canvas.getContext('2d')
+    if (context) {
+      context.clearRect(0, 0, canvas.width, canvas.height)
+      context.fillStyle = '#c3f4ff'
+      context.font = 'bold 84px "Helvetica Neue", Helvetica, Arial, sans-serif'
+      context.textAlign = 'center'
+      context.textBaseline = 'middle'
+      context.letterSpacing = '12px'
+      context.fillText('FRONT', canvas.width / 2, canvas.height / 2)
+    }
+
+    const texture = new CanvasTexture(canvas)
+    texture.colorSpace = SRGBColorSpace
+    texture.anisotropy = this.renderer.capabilities.getMaxAnisotropy()
+
+    // The default plane lies in XY with its normal on +Z, matching the Z-up
+    // ground, so the text reads upright from above without any rotation.
+    const mesh = new Mesh(
+      new PlaneGeometry(1, 1),
+      new MeshBasicMaterial({
+        map: texture,
+        transparent: true,
+        opacity: 0.75,
+        depthWrite: false,
+      }),
+    )
+    mesh.position.z = 0.005
+    mesh.renderOrder = 1
+    this.scene.add(mesh)
+
+    return { mesh, texture }
   }
 
   private createBeamObjects(): {
@@ -843,6 +965,7 @@ export class PlanetariumScene {
 
     this.clearSourceImage()
     this.projectedImageMaterial.dispose()
+    this.frontLabelTexture.dispose()
 
     const geometries = new Set<BufferGeometry>()
     const materials = new Set<Material>()
