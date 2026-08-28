@@ -938,7 +938,7 @@ export class PlanetariumScene {
     object.geometry.setDrawRange(0, vertexCount)
   }
 
-  private readonly resize = (): void => {
+  readonly resize = (): void => {
     const width = this.container.clientWidth
     const height = this.container.clientHeight
     this.camera.aspect = width / Math.max(height, 1)

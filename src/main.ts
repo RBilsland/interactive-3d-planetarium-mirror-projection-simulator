@@ -220,6 +220,16 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
         </div>
       </aside>
 
+      <div
+        id="panel-resizer"
+        class="panel-resizer"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize control panel"
+        tabindex="0"
+        title="Drag to resize · double-click to reset"
+      ></div>
+
       <section class="viewport-wrap">
         <div id="viewport" aria-label="Interactive 3D planetarium simulation"></div>
         <div class="axis-label rear">−Y · MIRROR</div>
@@ -518,6 +528,80 @@ const renderProfileList = (activeId = ''): void => {
     })
     .join('')
 }
+
+const PANEL_WIDTH_STORAGE_KEY = 'domecast.panelWidth'
+const DEFAULT_PANEL_WIDTH = 322
+const MIN_PANEL_WIDTH = 260
+const MAX_PANEL_WIDTH = 620
+
+const workspace = document.querySelector<HTMLElement>('.workspace')!
+const controlPanel = document.querySelector<HTMLElement>('.control-panel')!
+const panelResizer = document.querySelector<HTMLElement>('#panel-resizer')!
+
+/** Leaves at least 45% of the workspace for the viewport on smaller screens. */
+const clampPanelWidth = (width: number): number =>
+  Math.round(
+    Math.min(
+      Math.max(width, MIN_PANEL_WIDTH),
+      Math.min(MAX_PANEL_WIDTH, workspace.clientWidth * 0.55),
+    ),
+  )
+
+const setPanelWidth = (width: number): void => {
+  workspace.style.setProperty('--panel-width', `${clampPanelWidth(width)}px`)
+  scene.resize()
+}
+
+try {
+  const stored = Number(localStorage.getItem(PANEL_WIDTH_STORAGE_KEY))
+  if (Number.isFinite(stored) && stored > 0) setPanelWidth(stored)
+} catch {
+  // A blocked localStorage just means the panel opens at its default width.
+}
+
+const persistPanelWidth = (): void => {
+  try {
+    localStorage.setItem(PANEL_WIDTH_STORAGE_KEY, String(controlPanel.clientWidth))
+  } catch {
+    // Ignored: the width simply will not survive a reload.
+  }
+}
+
+panelResizer.addEventListener('pointerdown', (event) => {
+  event.preventDefault()
+  panelResizer.setPointerCapture(event.pointerId)
+  panelResizer.classList.add('is-dragging')
+  document.body.style.userSelect = 'none'
+})
+
+panelResizer.addEventListener('pointermove', (event) => {
+  if (!panelResizer.hasPointerCapture(event.pointerId)) return
+  setPanelWidth(event.clientX - workspace.getBoundingClientRect().left)
+})
+
+const endPanelDrag = (event: PointerEvent): void => {
+  if (!panelResizer.hasPointerCapture(event.pointerId)) return
+  panelResizer.releasePointerCapture(event.pointerId)
+  panelResizer.classList.remove('is-dragging')
+  document.body.style.userSelect = ''
+  persistPanelWidth()
+}
+
+panelResizer.addEventListener('pointerup', endPanelDrag)
+panelResizer.addEventListener('pointercancel', endPanelDrag)
+
+panelResizer.addEventListener('dblclick', () => {
+  setPanelWidth(DEFAULT_PANEL_WIDTH)
+  persistPanelWidth()
+})
+
+panelResizer.addEventListener('keydown', (event) => {
+  const step = event.key === 'ArrowLeft' ? -16 : event.key === 'ArrowRight' ? 16 : 0
+  if (step === 0) return
+  event.preventDefault()
+  setPanelWidth(controlPanel.clientWidth + step)
+  persistPanelWidth()
+})
 
 const tabs = [...document.querySelectorAll<HTMLButtonElement>('.tab-strip .tab')]
 

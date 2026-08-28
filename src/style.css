@@ -151,7 +151,39 @@ h1 span {
 .workspace {
   min-height: 0;
   display: grid;
-  grid-template-columns: 322px minmax(0, 1fr);
+  grid-template-columns: var(--panel-width, 322px) 0 minmax(0, 1fr);
+}
+
+/* Sits on top of the panel border so the grid column itself takes no space. */
+.panel-resizer {
+  position: relative;
+  z-index: 6;
+  width: 9px;
+  margin-left: -5px;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.panel-resizer::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 4px;
+  width: 1px;
+  background: transparent;
+  transition: background 160ms ease;
+}
+
+.panel-resizer:hover::after,
+.panel-resizer:focus-visible::after,
+.panel-resizer.is-dragging::after {
+  background: var(--cyan);
+  box-shadow: 0 0 8px rgba(88, 230, 194, 0.5);
+}
+
+.panel-resizer:focus-visible {
+  outline: none;
 }
 
 .control-panel {
@@ -810,6 +842,11 @@ i.occluded { background: var(--pink); box-shadow: 0 0 5px var(--pink); }
   .workspace {
     grid-template-columns: 1fr;
     grid-template-rows: minmax(360px, 58%) minmax(0, 42%);
+  }
+
+  /* Stacked layout: the panel spans the full width, so there is nothing to drag. */
+  .panel-resizer {
+    display: none;
   }
 
   .viewport-wrap {
