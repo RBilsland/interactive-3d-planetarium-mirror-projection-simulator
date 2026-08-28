@@ -60,7 +60,7 @@ const DEFAULT_DISPLAY: DisplayOptions = {
   showPixelGrid: true,
   showGround: true,
   showSourcePreview: true,
-  includeOccludedInMesh: false,
+  excludeOccludedFromMesh: true,
 }
 
 const DEFAULT_ORIENTATION: SourceOrientation = {
@@ -206,8 +206,19 @@ export function sanitizeParameters(
   return draft
 }
 
-function sanitizeDisplay(raw: unknown): DisplayOptions {
-  const source = (raw ?? {}) as Partial<DisplayOptions>
+export function sanitizeDisplay(raw: unknown): DisplayOptions {
+  const source = (raw ?? {}) as Partial<DisplayOptions> & {
+    includeOccludedInMesh?: boolean
+  }
+
+  // The flag was stored inverted before it became "exclude occluded".
+  const excludeOccludedFromMesh =
+    typeof source.excludeOccludedFromMesh === 'boolean'
+      ? source.excludeOccludedFromMesh
+      : typeof source.includeOccludedInMesh === 'boolean'
+        ? !source.includeOccludedInMesh
+        : DEFAULT_DISPLAY.excludeOccludedFromMesh
+
   return {
     showRays: boolean(source.showRays, DEFAULT_DISPLAY.showRays),
     showProjector: boolean(source.showProjector, DEFAULT_DISPLAY.showProjector),
@@ -217,10 +228,7 @@ function sanitizeDisplay(raw: unknown): DisplayOptions {
       source.showSourcePreview,
       DEFAULT_DISPLAY.showSourcePreview,
     ),
-    includeOccludedInMesh: boolean(
-      source.includeOccludedInMesh,
-      DEFAULT_DISPLAY.includeOccludedInMesh,
-    ),
+    excludeOccludedFromMesh,
   }
 }
 

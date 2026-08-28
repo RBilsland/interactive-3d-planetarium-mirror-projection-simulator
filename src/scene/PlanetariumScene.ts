@@ -267,7 +267,7 @@ export class PlanetariumScene {
     if (showProjected) {
       const footprint = getUsableRayGridBounds(
         result.rays,
-        display.includeOccludedInMesh,
+        !display.excludeOccludedFromMesh,
       )
       if (!footprint) {
         this.projectedImage.visible = false
@@ -295,7 +295,7 @@ export class PlanetariumScene {
           preview.rays,
           domeRadius,
           orientation,
-          display.includeOccludedInMesh,
+          !display.excludeOccludedFromMesh,
           previewBounds,
           this.sourceProjection ?? 'equirectangular',
         )

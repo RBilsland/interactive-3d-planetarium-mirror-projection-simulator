@@ -47,7 +47,7 @@ const display: DisplayOptions = {
   showPixelGrid: true,
   showGround: true,
   showSourcePreview: true,
-  includeOccludedInMesh: false,
+  excludeOccludedFromMesh: true,
 }
 
 const orientation: SourceOrientation = {
@@ -330,6 +330,7 @@ bind(geometryFolder.add(params, 'mirrorHeight', 0, 3.5, 0.05).name('Mirror heigh
 bind(geometryFolder.add(params, 'mirrorPitch', 0, 60, 0.25).name('Mirror pitch down · °'))
 
 const projectorFolder = rigGui.addFolder('Projector')
+bind(projectorFolder.add(params, 'aspectRatio', ['16:9', '16:10', '4:3']).name('Aspect ratio'))
 const distanceController = bind(
   projectorFolder
     .add(params, 'projectorDistance', 0, getMaxProjectorDistance(params), 0.05)
@@ -338,7 +339,6 @@ const distanceController = bind(
 bind(projectorFolder.add(params, 'projectorHeight', 0, 3.5, 0.05).name('Height · m'))
 bind(projectorFolder.add(params, 'projectorPitch', -30, 30, 0.25).name('Pitch · °'))
 bind(projectorFolder.add(params, 'projectorFov', 20, 120, 0.5).name('Diagonal FOV · °'))
-bind(projectorFolder.add(params, 'aspectRatio', ['16:9', '16:10', '4:3']).name('Aspect ratio'))
 bind(
   projectorFolder
     .add(params, 'lensShiftVertical', -1, 1, 0.01)
@@ -356,7 +356,7 @@ const syncProjectorDistanceRange = (): void => {
 }
 
 bind(
-  sourceGui.add(display, 'includeOccludedInMesh').name('Include occluded in mesh'),
+  sourceGui.add(display, 'excludeOccludedFromMesh').name('Exclude occluded from mesh'),
 )
 
 const orientationFolder = sourceGui.addFolder('Source orientation')
@@ -757,7 +757,7 @@ importSetup.addEventListener('change', async () => {
     const imported = parseSetupExport(await file.text())
     Object.assign(params, imported.parameters)
     Object.assign(orientation, imported.orientation)
-    display.includeOccludedInMesh = imported.includeOccludedInMesh
+    display.excludeOccludedFromMesh = imported.excludeOccludedFromMesh
     // Inside the dome the imported layers wait until the observer flies back out.
     enforceViewLayers()
     profileName.value = imported.name
@@ -789,7 +789,7 @@ document.querySelector('#download-mesh')!.addEventListener('click', () => {
   const sourceProjection = scene.getSourceProjection() ?? 'equirectangular'
   const mesh = buildWarpMesh(params, {
     orientation,
-    includeOccluded: display.includeOccludedInMesh,
+    includeOccluded: !display.excludeOccludedFromMesh,
     sourceProjection,
   })
   const text = serializeWarpMesh(mesh)

@@ -45,7 +45,7 @@ export interface DisplayOptions {
   showGround: boolean
   showSourcePreview: boolean
   /** When true, chassis-shadowed rays still contribute to warp mesh and preview. */
-  includeOccludedInMesh: boolean
+  excludeOccludedFromMesh: boolean
 }
 
 export interface TracedRay {

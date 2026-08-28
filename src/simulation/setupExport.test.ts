@@ -30,7 +30,7 @@ const display: DisplayOptions = {
   showPixelGrid: true,
   showGround: true,
   showSourcePreview: true,
-  includeOccludedInMesh: false,
+  excludeOccludedFromMesh: true,
 }
 
 describe('setup export', () => {
@@ -47,7 +47,7 @@ describe('setup export', () => {
     expect(setup.name).toBe('Hall A')
     expect(setup.parameters).toEqual(parameters)
     expect(setup.orientation).toEqual({ yaw: 12, pitch: -5, roll: 0 })
-    expect(setup.display).toEqual({ includeOccludedInMesh: false })
+    expect(setup.display).toEqual({ excludeOccludedFromMesh: true })
   })
 
   it('serialises valid JSON with only Metal-relevant display fields', () => {
@@ -61,13 +61,13 @@ describe('setup export', () => {
     expect(parsed.format).toBe(SETUP_EXPORT_FORMAT)
     expect(parsed.parameters).toBeTruthy()
     expect(parsed.orientation).toBeTruthy()
-    expect(parsed.display).toEqual({ includeOccludedInMesh: false })
+    expect(parsed.display).toEqual({ excludeOccludedFromMesh: true })
     expect(parsed.showRays).toBeUndefined()
   })
 
   it('round-trips an exported setup back through the importer', () => {
     const exported = serializeSetupExport(
-      buildSetupExport('Hall A', parameters, { ...display, includeOccludedInMesh: true }, {
+      buildSetupExport('Hall A', parameters, { ...display, excludeOccludedFromMesh: false }, {
         yaw: 12,
         pitch: -5,
         roll: 3,
@@ -79,7 +79,7 @@ describe('setup export', () => {
     expect(imported.name).toBe('Hall A')
     expect(imported.parameters).toEqual(parameters)
     expect(imported.orientation).toEqual({ yaw: 12, pitch: -5, roll: 3 })
-    expect(imported.includeOccludedInMesh).toBe(true)
+    expect(imported.excludeOccludedFromMesh).toBe(false)
   })
 
   it('falls back to defaults for missing or corrupt fields', () => {
@@ -94,7 +94,18 @@ describe('setup export', () => {
     expect(imported.parameters.domeDiameter).toBe(12)
     expect(imported.parameters.projectorFov).toBe(54)
     expect(imported.orientation).toEqual({ yaw: 0, pitch: 0, roll: 0 })
-    expect(imported.includeOccludedInMesh).toBe(false)
+    expect(imported.excludeOccludedFromMesh).toBe(true)
+  })
+
+  it('inverts the legacy include-occluded flag from older setup files', () => {
+    const imported = parseSetupExport(
+      JSON.stringify({
+        format: SETUP_EXPORT_FORMAT,
+        display: { includeOccludedInMesh: true },
+      }),
+    )
+
+    expect(imported.excludeOccludedFromMesh).toBe(false)
   })
 
   it('rejects malformed JSON and foreign files', () => {

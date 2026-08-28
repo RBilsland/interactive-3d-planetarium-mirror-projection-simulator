@@ -1,4 +1,8 @@
-import { sanitizeOrientation, sanitizeParameters } from './profiles'
+import {
+  sanitizeDisplay,
+  sanitizeOrientation,
+  sanitizeParameters,
+} from './profiles'
 import type {
   DisplayOptions,
   SimulationParameters,
@@ -13,7 +17,7 @@ export interface SetupExport {
   exportedAt: string
   parameters: SimulationParameters
   orientation: SourceOrientation
-  display: Pick<DisplayOptions, 'includeOccludedInMesh'>
+  display: Pick<DisplayOptions, 'excludeOccludedFromMesh'>
 }
 
 export function buildSetupExport(
@@ -30,7 +34,7 @@ export function buildSetupExport(
     parameters: { ...parameters },
     orientation: { ...orientation },
     display: {
-      includeOccludedInMesh: display.includeOccludedInMesh,
+      excludeOccludedFromMesh: display.excludeOccludedFromMesh,
     },
   }
 }
@@ -39,7 +43,7 @@ export interface ImportedSetup {
   name: string
   parameters: SimulationParameters
   orientation: SourceOrientation
-  includeOccludedInMesh: boolean
+  excludeOccludedFromMesh: boolean
 }
 
 /**
@@ -70,7 +74,7 @@ export function parseSetupExport(text: string): ImportedSetup {
     name,
     parameters: sanitizeParameters(source.parameters),
     orientation: sanitizeOrientation(source.orientation),
-    includeOccludedInMesh: source.display?.includeOccludedInMesh === true,
+    excludeOccludedFromMesh: sanitizeDisplay(source.display).excludeOccludedFromMesh,
   }
 }
 

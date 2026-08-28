@@ -24,7 +24,7 @@ const display: DisplayOptions = {
   showPixelGrid: false,
   showGround: true,
   showSourcePreview: true,
-  includeOccludedInMesh: false,
+  excludeOccludedFromMesh: true,
 }
 
 describe('saved profiles', () => {
@@ -127,7 +127,26 @@ describe('saved profiles', () => {
     const legacy = createProfileStore(storage).load('legacy')
     expect(legacy?.orientation).toEqual({ yaw: 0, pitch: 0, roll: 0 })
     expect(legacy?.display.showSourcePreview).toBe(true)
-    expect(legacy?.display.includeOccludedInMesh).toBe(false)
+    expect(legacy?.display.excludeOccludedFromMesh).toBe(true)
+  })
+
+  it('inverts the legacy include-occluded flag when loading older profiles', () => {
+    const storage = new MemoryStorage()
+    storage.setItem(
+      'domecast.profiles.v3',
+      JSON.stringify([
+        {
+          id: 'legacy-flag',
+          name: 'Legacy flag',
+          savedAt: 1,
+          parameters: {},
+          display: { includeOccludedInMesh: true },
+        },
+      ]),
+    )
+
+    const legacy = createProfileStore(storage).load('legacy-flag')
+    expect(legacy?.display.excludeOccludedFromMesh).toBe(false)
   })
 
   it('migrates v1 centre-to-centre distances to front-to-front', () => {
