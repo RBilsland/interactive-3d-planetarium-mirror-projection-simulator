@@ -721,7 +721,11 @@ sourceFile.addEventListener('change', async () => {
         ? 'fisheye'
         : 'equirectangular'
     setSourceStatus(`Loaded ${resolutionHint} · ${kindHint}`)
+    // A new image starts from a neutral orientation rather than inheriting the
+    // angles that suited the previous one.
+    Object.assign(orientation, defaultOrientation)
     setOrientationControls(size.projection)
+    applyControllers()
     scheduleUpdate()
   } catch (error) {
     setOrientationControls('off')
