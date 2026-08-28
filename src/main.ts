@@ -82,43 +82,133 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
           </div>
           <button id="reset-parameters" class="icon-button" title="Reset parameters" aria-label="Reset parameters">↺</button>
         </div>
-        <div id="gui-container"></div>
-        <section class="source-panel" aria-label="Dome source image">
-          <p class="eyebrow">Dome source image</p>
-          <div class="source-actions">
-            <label class="file-button" for="source-file">
-              Choose image
-              <input id="source-file" type="file" accept="image/*" hidden />
-            </label>
-            <button id="source-clear" type="button">Clear</button>
+        <div class="tab-strip" role="tablist" aria-label="Control groups">
+          <button
+            id="tab-rig"
+            class="tab is-active"
+            type="button"
+            role="tab"
+            aria-selected="true"
+            aria-controls="panel-rig"
+            data-panel="panel-rig"
+          >
+            Rig
+          </button>
+          <button
+            id="tab-source"
+            class="tab"
+            type="button"
+            role="tab"
+            aria-selected="false"
+            aria-controls="panel-source"
+            data-panel="panel-source"
+          >
+            Source
+          </button>
+          <button
+            id="tab-export"
+            class="tab"
+            type="button"
+            role="tab"
+            aria-selected="false"
+            aria-controls="panel-export"
+            data-panel="panel-export"
+          >
+            Export
+          </button>
+          <button
+            id="tab-setups"
+            class="tab"
+            type="button"
+            role="tab"
+            aria-selected="false"
+            aria-controls="panel-setups"
+            data-panel="panel-setups"
+          >
+            Setups
+          </button>
+        </div>
+
+        <div class="tab-panels">
+          <div
+            id="panel-rig"
+            class="tab-panel is-active"
+            role="tabpanel"
+            aria-labelledby="tab-rig"
+          >
+            <div id="gui-rig" class="gui-mount"></div>
           </div>
-          <p id="source-status" class="profile-status" role="status">
-            No image loaded · 1:1 fisheye or 2:1 equirectangular
-          </p>
-          <div class="export-actions">
-            <button id="download-mesh" type="button" class="mesh-download">
-              Download warp mesh
-            </button>
-            <button id="export-setup" type="button" class="mesh-download mesh-download-secondary">
-              Export setup JSON
-            </button>
+
+          <div
+            id="panel-source"
+            class="tab-panel"
+            role="tabpanel"
+            aria-labelledby="tab-source"
+            hidden
+          >
+            <section class="source-panel" aria-label="Dome source image">
+              <p class="eyebrow">Dome source image</p>
+              <div class="source-actions">
+                <label class="file-button" for="source-file">
+                  Choose image
+                  <input id="source-file" type="file" accept="image/*" hidden />
+                </label>
+                <button id="source-clear" type="button">Clear</button>
+              </div>
+              <p id="source-status" class="profile-status" role="status">
+                No image loaded · 1:1 fisheye or 2:1 equirectangular
+              </p>
+            </section>
+            <div id="gui-source" class="gui-mount"></div>
           </div>
-        </section>
-        <section class="profiles" aria-label="Saved setups">
-          <p class="eyebrow">Saved setups</p>
-          <div class="profile-save-row">
-            <input
-              id="profile-name"
-              type="text"
-              maxlength="80"
-              placeholder="Name this setup"
-              autocomplete="off"
-            />
-            <button id="profile-save" type="button">Save</button>
+
+          <div
+            id="panel-export"
+            class="tab-panel"
+            role="tabpanel"
+            aria-labelledby="tab-export"
+            hidden
+          >
+            <section class="panel-section" aria-label="Export">
+              <p class="eyebrow">Warp mesh</p>
+              <div id="gui-export" class="gui-mount"></div>
+              <button id="download-mesh" type="button" class="mesh-download">
+                Download warp mesh
+              </button>
+            </section>
+            <section class="panel-section" aria-label="Setup file">
+              <p class="eyebrow">Setup file</p>
+              <button id="export-setup" type="button" class="mesh-download mesh-download-secondary">
+                Export setup JSON
+              </button>
+            </section>
           </div>
-          <p id="profile-status" class="profile-status" role="status"></p>
-          <ul id="profile-list" class="profile-list"></ul>
-        </section>
+
+          <div
+            id="panel-setups"
+            class="tab-panel"
+            role="tabpanel"
+            aria-labelledby="tab-setups"
+            hidden
+          >
+            <section class="profiles" aria-label="Saved setups">
+              <p class="eyebrow">Saved setups</p>
+              <div class="profile-save-row">
+                <input
+                  id="profile-name"
+                  type="text"
+                  maxlength="80"
+                  placeholder="Name this setup"
+                  autocomplete="off"
+                />
+                <button id="profile-save" type="button">Save</button>
+              </div>
+              <p id="profile-status" class="profile-status" role="status"></p>
+              <ul id="profile-list" class="profile-list"></ul>
+            </section>
+          </div>
+        </div>
+
         <div class="hint">
           <span>⌘</span>
           <p><strong>Navigate the model</strong><br>Drag to orbit · Scroll to zoom · Right-drag to pan</p>
@@ -165,6 +255,23 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
           </div>
         </div>
 
+        <div class="view-card">
+          <div class="view-card-heading">
+            <p class="eyebrow">View</p>
+            <button
+              id="view-collapse"
+              class="view-collapse"
+              type="button"
+              aria-expanded="true"
+              aria-controls="gui-view"
+              title="Collapse view controls"
+            >
+              −
+            </button>
+          </div>
+          <div id="gui-view" class="gui-mount"></div>
+        </div>
+
         <div class="legend">
           <span><i class="valid"></i> Valid path</span>
           <span><i class="missed"></i> Overshot</span>
@@ -177,11 +284,18 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
 
 const viewport = document.querySelector<HTMLElement>('#viewport')!
 const scene = new PlanetariumScene(viewport)
-const gui = new GUI({
-  container: document.querySelector<HTMLElement>('#gui-container')!,
-  title: '',
-  width: 300,
-})
+const mountGui = (selector: string) =>
+  new GUI({
+    container: document.querySelector<HTMLElement>(selector)!,
+    title: '',
+    width: 300,
+  })
+
+const rigGui = mountGui('#gui-rig')
+const sourceGui = mountGui('#gui-source')
+const exportGui = mountGui('#gui-export')
+const viewGui = mountGui('#gui-view')
+const guis = [rigGui, sourceGui, exportGui, viewGui]
 
 let updateFrame = 0
 const scheduleUpdate = () => {
@@ -192,13 +306,16 @@ const scheduleUpdate = () => {
 const bind = (controller: ReturnType<GUI['add']>) =>
   controller.onChange(scheduleUpdate)
 
-const geometryFolder = gui.addFolder('Environment')
+const geometryFolder = rigGui.addFolder('Environment')
 bind(geometryFolder.add(params, 'domeDiameter', 5, 20, 0.1).name('Dome diameter · m'))
-bind(geometryFolder.add(params, 'mirrorDiameter', 0.4, 3, 0.02).name('Mirror diameter · m'))
+const mirrorDiameterController = bind(
+  geometryFolder.add(params, 'mirrorDiameter', 0.4, 3, 0.02).name('Mirror diameter · m'),
+)
+mirrorDiameterController.domElement.classList.add('group-start')
 bind(geometryFolder.add(params, 'mirrorHeight', 0, 3.5, 0.05).name('Mirror height · m'))
 bind(geometryFolder.add(params, 'mirrorPitch', 0, 60, 0.25).name('Mirror pitch down · °'))
 
-const projectorFolder = gui.addFolder('Projector')
+const projectorFolder = rigGui.addFolder('Projector')
 const distanceController = bind(
   projectorFolder
     .add(params, 'projectorDistance', 0, getMaxProjectorDistance(params), 0.05)
@@ -208,6 +325,11 @@ bind(projectorFolder.add(params, 'projectorHeight', 0, 3.5, 0.05).name('Height �
 bind(projectorFolder.add(params, 'projectorPitch', -30, 30, 0.25).name('Pitch · °'))
 bind(projectorFolder.add(params, 'projectorFov', 20, 120, 0.5).name('Diagonal FOV · °'))
 bind(projectorFolder.add(params, 'aspectRatio', ['16:9', '16:10', '4:3']).name('Aspect ratio'))
+bind(
+  projectorFolder
+    .add(params, 'lensShiftVertical', -1, 1, 0.01)
+    .name('Vertical lens shift'),
+)
 
 const syncProjectorDistanceRange = (): void => {
   const maxDistance = getMaxProjectorDistance(params)
@@ -219,10 +341,7 @@ const syncProjectorDistanceRange = (): void => {
   distanceController.updateDisplay()
 }
 
-const lensFolder = gui.addFolder('Lens shift')
-bind(lensFolder.add(params, 'lensShiftVertical', -1, 1, 0.01).name('Vertical · image heights'))
-
-const orientationFolder = gui.addFolder('Source orientation')
+const orientationFolder = sourceGui.addFolder('Source orientation')
 const yawController = bind(
   orientationFolder.add(orientation, 'yaw', -180, 180, 0.5).name('Yaw · °'),
 )
@@ -259,7 +378,13 @@ const setOrientationControls = (
 }
 setOrientationControls('off')
 
-const displayFolder = gui.addFolder('Viewport layers')
+const view = { mode: 'fly' as ViewMode }
+viewGui
+  .add(view, 'mode', { Fly: 'fly', 'Inside dome': 'dome' })
+  .name('Camera')
+  .onChange((mode: ViewMode) => applyViewMode(mode))
+
+const displayFolder = viewGui.addFolder('Viewport layers')
 const layerControllers = {
   showRays: bind(displayFolder.add(display, 'showRays').name('Ray bundle')),
   showProjector: bind(
@@ -274,9 +399,9 @@ const layerControllers = {
   ),
 }
 bind(
-  displayFolder
+  exportGui
     .add(display, 'includeOccludedInMesh')
-    .name('Include occluded in mesh'),
+    .name('Include occluded'),
 )
 
 /** Layers the dome view forces while the observer is inside the dome. */
@@ -287,7 +412,6 @@ const DOME_VIEW_LAYERS: Partial<DisplayOptions> = {
   showSourcePreview: true,
 }
 
-const view = { mode: 'fly' as ViewMode }
 let flyLayers: DisplayOptions | null = null
 
 /**
@@ -327,12 +451,6 @@ const applyViewMode = (mode: ViewMode): void => {
   scheduleUpdate()
 }
 
-const viewFolder = gui.addFolder('View')
-viewFolder
-  .add(view, 'mode', { Fly: 'fly', 'Inside dome': 'dome' })
-  .name('Camera')
-  .onChange((mode: ViewMode) => applyViewMode(mode))
-
 const defaults = { ...params }
 const defaultOrientation = { ...orientation }
 const profiles = createProfileStore()
@@ -343,7 +461,9 @@ const sourceStatus = document.querySelector<HTMLElement>('#source-status')!
 const sourceFile = document.querySelector<HTMLInputElement>('#source-file')!
 
 const applyControllers = () => {
-  gui.controllersRecursive().forEach((controller) => controller.updateDisplay())
+  for (const instance of guis) {
+    instance.controllersRecursive().forEach((controller) => controller.updateDisplay())
+  }
 }
 
 const setProfileStatus = (message: string) => {
@@ -391,6 +511,34 @@ const renderProfileList = (activeId = ''): void => {
     })
     .join('')
 }
+
+const tabs = [...document.querySelectorAll<HTMLButtonElement>('.tab-strip .tab')]
+
+const selectTab = (panelId: string): void => {
+  for (const tab of tabs) {
+    const active = tab.dataset.panel === panelId
+    tab.classList.toggle('is-active', active)
+    tab.setAttribute('aria-selected', String(active))
+    const panel = document.querySelector<HTMLElement>(`#${tab.dataset.panel}`)!
+    panel.classList.toggle('is-active', active)
+    panel.hidden = !active
+  }
+}
+
+for (const tab of tabs) {
+  tab.addEventListener('click', () => selectTab(tab.dataset.panel!))
+}
+
+const viewCollapse = document.querySelector<HTMLButtonElement>('#view-collapse')!
+viewCollapse.addEventListener('click', () => {
+  const collapsed = viewCollapse.getAttribute('aria-expanded') === 'true'
+  viewCollapse.setAttribute('aria-expanded', String(!collapsed))
+  viewCollapse.textContent = collapsed ? '+' : '−'
+  viewCollapse.title = collapsed ? 'Expand view controls' : 'Collapse view controls'
+  document
+    .querySelector<HTMLElement>('.view-card')!
+    .classList.toggle('is-collapsed', collapsed)
+})
 
 document.querySelector('#reset-parameters')!.addEventListener('click', () => {
   Object.assign(params, defaults)
@@ -567,6 +715,6 @@ updateSimulation()
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {
     scene.dispose()
-    gui.destroy()
+    for (const instance of guis) instance.destroy()
   })
 }

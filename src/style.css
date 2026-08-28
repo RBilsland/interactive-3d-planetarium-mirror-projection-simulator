@@ -158,12 +158,67 @@ h1 span {
   position: relative;
   z-index: 4;
   min-height: 0;
-  overflow-y: auto;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  overflow: hidden;
   padding: 22px 20px 18px;
   border-right: 1px solid var(--line);
   background: rgba(9, 14, 22, 0.95);
+}
+
+.tab-strip {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 3px;
+  margin: 14px 4px 0;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: rgba(12, 20, 30, 0.75);
+}
+
+.tab {
+  height: 27px;
+  border: 0;
+  border-radius: 6px;
+  color: #7d90a3;
+  background: transparent;
+  cursor: pointer;
+  font: 600 10px 'DM Mono', monospace;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  transition: 160ms ease;
+}
+
+.tab:hover {
+  color: #b6c6d5;
+}
+
+.tab.is-active {
+  color: #0b1514;
+  background: linear-gradient(90deg, #2f8c80, var(--cyan));
+}
+
+.tab-panels {
+  min-height: 0;
+  overflow-y: auto;
   scrollbar-color: #27384a transparent;
   scrollbar-width: thin;
+}
+
+.tab-panel[hidden] {
+  display: none;
+}
+
+.panel-section {
+  margin: 16px 4px 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.panel-section > .eyebrow {
+  margin-bottom: 10px;
 }
 
 .panel-heading {
@@ -197,11 +252,16 @@ h1 span {
   border-color: rgba(88, 230, 194, 0.35);
 }
 
-#gui-container {
+.tab-panel > :first-child {
+  margin-top: 0;
+  border-top: 0;
+}
+
+.gui-mount {
   padding-top: 8px;
 }
 
-#gui-container .lil-gui {
+.gui-mount .lil-gui {
   --background-color: transparent;
   --widget-color: #131e2a;
   --hover-color: #182635;
@@ -219,47 +279,64 @@ h1 span {
   width: 100% !important;
 }
 
-#gui-container > .lil-gui > .title {
+.gui-mount > .lil-gui > .lil-title {
   display: none;
 }
 
-#gui-container .lil-gui.root {
+.gui-mount .lil-gui.lil-root {
   border: 0;
 }
 
-#gui-container .lil-gui .children {
+.gui-mount .lil-gui .lil-children {
   border-left: 0;
 }
 
-#gui-container .lil-gui .folder > .title {
+/* Folders never collapse, so their titles act as labelled dividers. */
+.gui-mount .lil-gui.lil-root .lil-gui > .lil-title {
   height: 35px;
   padding-left: 4px;
+  border: 0;
   border-bottom: 1px solid var(--line);
   background: transparent;
   color: #8fa2b5;
   font: 600 10px/35px 'DM Mono', monospace;
   letter-spacing: 0.09em;
   text-transform: uppercase;
+  pointer-events: none;
 }
 
-#gui-container .lil-gui .controller {
+.gui-mount .lil-gui .lil-title::before {
+  display: none;
+}
+
+.gui-mount .lil-gui .lil-controller {
   border-left: 0;
 }
 
-#gui-container .lil-gui .controller .name {
+.gui-mount .lil-gui .lil-controller.group-start {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.gui-mount .lil-gui .lil-controller > .lil-name {
   color: #889aad;
 }
 
-#gui-container .lil-gui input {
+.gui-mount .lil-gui .lil-controller.lil-boolean .lil-widget {
+  justify-content: flex-end;
+}
+
+.gui-mount .lil-gui input {
   color: #b9f8e9;
 }
 
-#gui-container .lil-gui .slider {
+.gui-mount .lil-gui .lil-slider {
   border-radius: 3px;
   background: #1c2b39;
 }
 
-#gui-container .lil-gui .slider-fg {
+.gui-mount .lil-gui .lil-fill {
   border-radius: 3px;
   background: linear-gradient(90deg, #2f8c80, var(--cyan));
 }
@@ -315,10 +392,7 @@ h1 span {
   gap: 8px;
 }
 
-.export-actions {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 8px;
+.panel-section .mesh-download {
   margin-top: 10px;
 }
 
@@ -498,6 +572,67 @@ h1 span {
   background: rgba(9, 15, 23, 0.8);
   backdrop-filter: blur(16px);
   box-shadow: 0 18px 50px rgba(0, 0, 0, 0.22);
+}
+
+.view-card {
+  position: absolute;
+  top: 40px;
+  left: 20px;
+  width: 214px;
+  padding: 12px 14px 14px;
+  border: 1px solid rgba(139, 173, 201, 0.15);
+  border-radius: 11px;
+  background: rgba(9, 15, 23, 0.8);
+  backdrop-filter: blur(16px);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.22);
+}
+
+.view-card-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.view-card-heading .eyebrow {
+  margin: 0;
+}
+
+.view-collapse {
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  color: #8396a9;
+  background: rgba(12, 20, 30, 0.7);
+  cursor: pointer;
+  font: 500 12px/1 'DM Mono', monospace;
+  transition: 160ms ease;
+}
+
+.view-collapse:hover {
+  color: var(--cyan);
+  border-color: rgba(88, 230, 194, 0.35);
+}
+
+.view-card.is-collapsed {
+  padding-bottom: 12px;
+}
+
+.view-card.is-collapsed .gui-mount {
+  display: none;
+}
+
+.view-card .gui-mount {
+  padding-top: 6px;
+}
+
+/* Tighter divider for the floating card, which has less room than the tabs. */
+.view-card .gui-mount .lil-gui .lil-gui > .lil-title {
+  margin-top: 8px;
+  height: 30px;
+  border-top: 1px solid var(--line);
+  border-bottom: 0;
+  line-height: 30px;
 }
 
 .metric-primary {
@@ -703,6 +838,13 @@ i.occluded { background: var(--pink); box-shadow: 0 0 5px var(--pink); }
 
   .metric-primary strong {
     font-size: 23px;
+  }
+
+  .view-card {
+    top: 12px;
+    left: 12px;
+    width: 172px;
+    padding: 10px 11px 11px;
   }
 
   .ray-counts,
