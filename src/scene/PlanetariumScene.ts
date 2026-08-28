@@ -77,6 +77,14 @@ const DOME_VIEW_PIVOT_DISTANCE = 0.01
 
 export type ViewMode = 'fly' | 'dome'
 
+/** A compass marker on the ground, placed along a unit direction in the XY plane. */
+interface GroundLabel {
+  mesh: Mesh
+  texture: CanvasTexture
+  directionX: number
+  directionY: number
+}
+
 /**
  * Renders the simulation. Every mesh is built once at unit size and resized by
  * transform alone: rebuilding geometry per parameter change churns through GPU
@@ -97,8 +105,7 @@ export class PlanetariumScene {
   private readonly projectedImageMaterial: MeshBasicMaterial
   private readonly ground: Mesh
   private readonly groundGrid: GridHelper
-  private readonly frontLabel: Mesh
-  private readonly frontLabelTexture: CanvasTexture
+  private readonly groundLabels: GroundLabel[]
   private readonly mirror = new Group()
   private readonly projector = new Group()
   private readonly projectorLens: Mesh
@@ -179,9 +186,7 @@ export class PlanetariumScene {
     this.ground = ground.disc
     this.groundGrid = ground.grid
 
-    const frontLabel = this.createFrontLabel()
-    this.frontLabel = frontLabel.mesh
-    this.frontLabelTexture = frontLabel.texture
+    this.groundLabels = this.createGroundLabels()
 
     this.createMirror()
     this.projectorLens = this.createProjector()
@@ -227,11 +232,14 @@ export class PlanetariumScene {
     const groundMaterial = this.ground.material as MeshStandardMaterial
     groundMaterial.opacity = insideDome ? 0.35 : 0.86
 
-    // Just inside the dome rim so it stays readable even when the projected
+    // Just inside the dome rim so they stay readable even when the projected
     // image reaches the dome base.
-    this.frontLabel.position.y = domeRadius * 0.87
-    this.frontLabel.scale.set(domeRadius * 0.34, domeRadius * 0.085, 1)
-    this.frontLabel.visible = display.showGround
+    for (const label of this.groundLabels) {
+      label.mesh.position.x = label.directionX * domeRadius * 0.87
+      label.mesh.position.y = label.directionY * domeRadius * 0.87
+      label.mesh.scale.set(domeRadius * 0.34, domeRadius * 0.085, 1)
+      label.mesh.visible = display.showGround
+    }
 
     this.mirror.position.copy(getMirrorCenter(params))
     this.mirror.rotation.copy(getMirrorRotation(params))
@@ -561,8 +569,22 @@ export class PlanetariumScene {
     return { disc, grid }
   }
 
-  /** Ground marker at the dome front (+Y) so the viewport keeps its bearings. */
-  private createFrontLabel(): { mesh: Mesh; texture: CanvasTexture } {
+  /** Compass markers on the ground so the viewport keeps its bearings. */
+  private createGroundLabels(): GroundLabel[] {
+    // Facing +Y with +Z up puts right at +X, so left falls on -X.
+    return [
+      this.createGroundLabel('FRONT', 0, 1),
+      this.createGroundLabel('RIGHT', 1, 0),
+      this.createGroundLabel('BACK', 0, -1),
+      this.createGroundLabel('LEFT', -1, 0),
+    ]
+  }
+
+  private createGroundLabel(
+    text: string,
+    directionX: number,
+    directionY: number,
+  ): GroundLabel {
     const canvas = document.createElement('canvas')
     canvas.width = 512
     canvas.height = 128
@@ -575,7 +597,7 @@ export class PlanetariumScene {
       context.textAlign = 'center'
       context.textBaseline = 'middle'
       context.letterSpacing = '12px'
-      context.fillText('FRONT', canvas.width / 2, canvas.height / 2)
+      context.fillText(text, canvas.width / 2, canvas.height / 2)
     }
 
     const texture = new CanvasTexture(canvas)
@@ -594,10 +616,13 @@ export class PlanetariumScene {
       }),
     )
     mesh.position.z = 0.005
+    // Turn the text to sit tangentially with its top pointing out of the dome,
+    // so each marker reads upright when viewed from the centre.
+    mesh.rotation.z = Math.atan2(directionY, directionX) - Math.PI / 2
     mesh.renderOrder = 1
     this.scene.add(mesh)
 
-    return { mesh, texture }
+    return { mesh, texture, directionX, directionY }
   }
 
   private createBeamObjects(): {
@@ -965,7 +990,7 @@ export class PlanetariumScene {
 
     this.clearSourceImage()
     this.projectedImageMaterial.dispose()
-    this.frontLabelTexture.dispose()
+    for (const label of this.groundLabels) label.texture.dispose()
 
     const geometries = new Set<BufferGeometry>()
     const materials = new Set<Material>()
