@@ -1,3 +1,4 @@
+import { sanitizeOrientation, sanitizeParameters } from './profiles'
 import type {
   DisplayOptions,
   SimulationParameters,
@@ -31,6 +32,45 @@ export function buildSetupExport(
     display: {
       includeOccludedInMesh: display.includeOccludedInMesh,
     },
+  }
+}
+
+export interface ImportedSetup {
+  name: string
+  parameters: SimulationParameters
+  orientation: SourceOrientation
+  includeOccludedInMesh: boolean
+}
+
+/**
+ * Reads a previously exported setup. Values run through the same sanitisers as
+ * saved profiles, so an edited or older file still yields a usable rig.
+ */
+export function parseSetupExport(text: string): ImportedSetup {
+  let raw: unknown
+  try {
+    raw = JSON.parse(text)
+  } catch {
+    throw new Error('INVALID_SETUP_JSON')
+  }
+
+  if (!raw || typeof raw !== 'object') throw new Error('INVALID_SETUP_JSON')
+
+  const source = raw as Partial<SetupExport>
+  if (source.format !== SETUP_EXPORT_FORMAT) {
+    throw new Error('UNSUPPORTED_SETUP_FORMAT')
+  }
+
+  const name =
+    typeof source.name === 'string' && source.name.trim().length > 0
+      ? source.name.trim()
+      : 'Untitled setup'
+
+  return {
+    name,
+    parameters: sanitizeParameters(source.parameters),
+    orientation: sanitizeOrientation(source.orientation),
+    includeOccludedInMesh: source.display?.includeOccludedInMesh === true,
   }
 }
 

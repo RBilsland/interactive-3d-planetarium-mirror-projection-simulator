@@ -105,7 +105,7 @@ function boolean(value: unknown, fallback: boolean): boolean {
   return typeof value === 'boolean' ? value : fallback
 }
 
-function sanitizeParameters(
+export function sanitizeParameters(
   raw: unknown,
   options: {
     migrateCentreToFrontDistance?: boolean
@@ -224,7 +224,7 @@ function sanitizeDisplay(raw: unknown): DisplayOptions {
   }
 }
 
-function sanitizeOrientation(raw: unknown): SourceOrientation {
+export function sanitizeOrientation(raw: unknown): SourceOrientation {
   const source = (raw ?? {}) as Partial<SourceOrientation>
   return {
     yaw: finite(source.yaw, DEFAULT_ORIENTATION.yaw),

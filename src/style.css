@@ -427,12 +427,6 @@ h1 span {
   border-color: transparent;
 }
 
-.mesh-download-secondary {
-  color: #9eb3c4;
-  background: #0c141e;
-  border-color: var(--line);
-}
-
 .file-button:hover,
 .source-actions button:hover,
 .mesh-download:hover,

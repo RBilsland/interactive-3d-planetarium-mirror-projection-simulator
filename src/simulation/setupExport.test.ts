@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildSetupExport,
+  parseSetupExport,
   sanitizeSetupFilename,
   serializeSetupExport,
   SETUP_EXPORT_FORMAT,
@@ -62,6 +63,46 @@ describe('setup export', () => {
     expect(parsed.orientation).toBeTruthy()
     expect(parsed.display).toEqual({ includeOccludedInMesh: false })
     expect(parsed.showRays).toBeUndefined()
+  })
+
+  it('round-trips an exported setup back through the importer', () => {
+    const exported = serializeSetupExport(
+      buildSetupExport('Hall A', parameters, { ...display, includeOccludedInMesh: true }, {
+        yaw: 12,
+        pitch: -5,
+        roll: 3,
+      }),
+    )
+
+    const imported = parseSetupExport(exported)
+
+    expect(imported.name).toBe('Hall A')
+    expect(imported.parameters).toEqual(parameters)
+    expect(imported.orientation).toEqual({ yaw: 12, pitch: -5, roll: 3 })
+    expect(imported.includeOccludedInMesh).toBe(true)
+  })
+
+  it('falls back to defaults for missing or corrupt fields', () => {
+    const imported = parseSetupExport(
+      JSON.stringify({
+        format: SETUP_EXPORT_FORMAT,
+        parameters: { domeDiameter: 12, projectorFov: 'nonsense' },
+      }),
+    )
+
+    expect(imported.name).toBe('Untitled setup')
+    expect(imported.parameters.domeDiameter).toBe(12)
+    expect(imported.parameters.projectorFov).toBe(54)
+    expect(imported.orientation).toEqual({ yaw: 0, pitch: 0, roll: 0 })
+    expect(imported.includeOccludedInMesh).toBe(false)
+  })
+
+  it('rejects malformed JSON and foreign files', () => {
+    expect(() => parseSetupExport('{ not json')).toThrow('INVALID_SETUP_JSON')
+    expect(() => parseSetupExport('"a string"')).toThrow('INVALID_SETUP_JSON')
+    expect(() => parseSetupExport(JSON.stringify({ format: 'something-else' }))).toThrow(
+      'UNSUPPORTED_SETUP_FORMAT',
+    )
   })
 
   it('sanitises download filenames', () => {

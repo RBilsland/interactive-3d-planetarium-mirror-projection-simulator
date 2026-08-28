@@ -9,6 +9,7 @@ import {
 import {
   buildSetupExport,
   downloadSetupExport,
+  parseSetupExport,
   sanitizeSetupFilename,
   serializeSetupExport,
 } from './simulation/setupExport'
@@ -171,17 +172,21 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
           >
             <section class="panel-section" aria-label="Export">
               <p class="eyebrow">Warp mesh</p>
-              <div id="gui-export" class="gui-mount"></div>
               <button id="download-mesh" type="button" class="mesh-download">
                 Download warp mesh
               </button>
             </section>
             <section class="panel-section" aria-label="Setup file">
               <p class="eyebrow">Setup file</p>
-              <button id="export-setup" type="button" class="mesh-download mesh-download-secondary">
+              <label class="mesh-download" for="import-setup">
+                Import setup JSON
+                <input id="import-setup" type="file" accept="application/json,.json" hidden />
+              </label>
+              <button id="export-setup" type="button" class="mesh-download">
                 Export setup JSON
               </button>
             </section>
+            <p id="export-status" class="profile-status" role="status"></p>
           </div>
 
           <div
@@ -293,9 +298,8 @@ const mountGui = (selector: string) =>
 
 const rigGui = mountGui('#gui-rig')
 const sourceGui = mountGui('#gui-source')
-const exportGui = mountGui('#gui-export')
 const viewGui = mountGui('#gui-view')
-const guis = [rigGui, sourceGui, exportGui, viewGui]
+const guis = [rigGui, sourceGui, viewGui]
 
 let updateFrame = 0
 const scheduleUpdate = () => {
@@ -340,6 +344,10 @@ const syncProjectorDistanceRange = (): void => {
   )
   distanceController.updateDisplay()
 }
+
+bind(
+  sourceGui.add(display, 'includeOccludedInMesh').name('Include occluded in mesh'),
+)
 
 const orientationFolder = sourceGui.addFolder('Source orientation')
 const yawController = bind(
@@ -398,12 +406,6 @@ const layerControllers = {
     displayFolder.add(display, 'showSourcePreview').name('Source preview'),
   ),
 }
-bind(
-  exportGui
-    .add(display, 'includeOccludedInMesh')
-    .name('Include occluded'),
-)
-
 /** Layers the dome view forces while the observer is inside the dome. */
 const DOME_VIEW_LAYERS: Partial<DisplayOptions> = {
   showRays: false,
@@ -472,6 +474,11 @@ const setProfileStatus = (message: string) => {
 
 const setSourceStatus = (message: string) => {
   sourceStatus.textContent = message
+}
+
+const exportStatus = document.querySelector<HTMLElement>('#export-status')!
+const setExportStatus = (message: string) => {
+  exportStatus.textContent = message
 }
 
 const escapeHtml = (value: string): string =>
@@ -653,12 +660,41 @@ document.querySelector('#source-clear')!.addEventListener('click', () => {
   scheduleUpdate()
 })
 
+const importSetup = document.querySelector<HTMLInputElement>('#import-setup')!
+importSetup.addEventListener('change', async () => {
+  const file = importSetup.files?.[0]
+  if (!file) return
+
+  try {
+    const imported = parseSetupExport(await file.text())
+    Object.assign(params, imported.parameters)
+    Object.assign(orientation, imported.orientation)
+    display.includeOccludedInMesh = imported.includeOccludedInMesh
+    // Inside the dome the imported layers wait until the observer flies back out.
+    enforceViewLayers()
+    profileName.value = imported.name
+    applyControllers()
+    scheduleUpdate()
+    setExportStatus(
+      `Imported “${imported.name}”. Re-select the source image if needed.`,
+    )
+  } catch (error) {
+    setExportStatus(
+      error instanceof Error && error.message === 'UNSUPPORTED_SETUP_FORMAT'
+        ? 'Not a DomeCast setup file.'
+        : 'Could not read that setup file.',
+    )
+  } finally {
+    importSetup.value = ''
+  }
+})
+
 document.querySelector('#export-setup')!.addEventListener('click', () => {
   const name = profileName.value.trim() || 'Untitled setup'
   const setup = buildSetupExport(name, params, display, orientation)
   const filename = sanitizeSetupFilename(name)
   downloadSetupExport(serializeSetupExport(setup), filename)
-  setSourceStatus(`Exported ${filename} for Metal / external runtimes`)
+  setExportStatus(`Exported ${filename} for Metal / external runtimes`)
 })
 
 document.querySelector('#download-mesh')!.addEventListener('click', () => {
@@ -673,7 +709,7 @@ document.querySelector('#download-mesh')!.addEventListener('click', () => {
     sourceProjection === 'fisheye' ? 'domecast_fisheye' : 'domecast_equirect'
   const filename = sanitizeMeshFilename(profileName.value || fallbackName)
   downloadWarpMesh(text, filename)
-  setSourceStatus(
+  setExportStatus(
     `Downloaded ${filename} (${mesh.columns}×${mesh.rows}, ${mesh.nodes.filter((node) => node.intensity > 0).length} mapped)`,
   )
 })
